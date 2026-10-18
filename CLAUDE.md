@@ -38,6 +38,13 @@ see "Decisions" below.
   the `plugins.sha256` column is our own digest of the installed file. Hangar gives sha256;
   Hangar releases with only an `externalUrl` are refused (unverifiable).
 - Upgrades are stage-then-commit: backup, download JAR/Java/plugins, then swap all at once.
+  Verify waits up to 15 min for startup (Paper pauses 30s before world-folder migrations).
+- Server DataVersion comes from `version.json` (`world_version`) at the root of server.jar.
+- Paper 26.x keeps dimensions in `world/dimensions/`; older versions use `world_nether`/
+  `world_the_end` siblings. Import maps sibling folders; Paper migrates them on start.
+- Webhooks can be scoped to servers (`webhook_servers` + explicit `all_servers` flag, so
+  deleting a scoped webhook's last server makes it inactive rather than global).
+- Large downloads (backups, world export) accept `?ticket=` so browsers stream to disk.
 
 ## Workflow
 Phase-by-phase; after each phase demo + wait for user confirmation, then one commit.

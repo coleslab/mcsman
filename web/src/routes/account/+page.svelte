@@ -1,6 +1,14 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { api, ApiError } from '#lib/api.ts';
 	import { session } from '#lib/session.svelte.ts';
+	import { live } from '#lib/ws.svelte.ts';
+
+	async function logout() {
+		live.stop();
+		await session.logout();
+		goto('/status');
+	}
 
 	let current = $state('');
 	let next = $state('');
@@ -41,6 +49,7 @@
 				<dt>Minecraft</dt><dd>{session.user.mc_username ?? '—'}</dd>
 				<dt>Role</dt><dd class="cap">{session.user.role}</dd>
 			</dl>
+			<div class="out"><button onclick={logout}>Log out</button></div>
 		</section>
 	{/if}
 
@@ -80,6 +89,9 @@
 	}
 	dd {
 		margin: 0;
+	}
+	.out {
+		margin-top: 12px;
 	}
 	.cap {
 		text-transform: capitalize;

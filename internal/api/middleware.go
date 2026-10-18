@@ -150,6 +150,23 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// requireAuthOrTicket accepts a bearer token or a single-use ?ticket=.
+func (s *Server) requireAuthOrTicket(next http.Handler) http.Handler {
+	auth := s.requireAuth(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if t := r.URL.Query().Get("ticket"); t != "" && principalFrom(r.Context()) == nil {
+			p := s.tickets.redeem(t)
+			if p == nil {
+				writeError(w, http.StatusUnauthorized, "invalid or expired ticket")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey, p)))
+			return
+		}
+		auth.ServeHTTP(w, r)
+	})
+}
+
 func requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if p := principalFrom(r.Context()); p == nil || !p.IsAdmin() {

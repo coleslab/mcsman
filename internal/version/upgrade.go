@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -354,6 +355,11 @@ func (u *Upgrader) stageAndApply(ctx context.Context, j *Job, inst *server.Insta
 
 var pluginErrorRe = regexp.MustCompile(`(?i)(could not load '|error occurred while (enabling|loading)|unknown/missing dependency|invalidpluginexception|unknowndependencyexception|ambiguous plugin name|plugin .* failed)`)
 
+// StartTimeout bounds how long an upgraded server may take to finish
+// starting. Version jumps can trigger world migrations (Paper waits 30s
+// before migrating, then converts chunks), so this is generous.
+var StartTimeout = 15 * time.Minute
+
 func (u *Upgrader) startAndTail(ctx context.Context, j *Job, inst *server.Instance) ([]string, error) {
 	tail := u.TailDuration
 	if tail == 0 {
@@ -366,16 +372,18 @@ func (u *Upgrader) startAndTail(ctx context.Context, j *Job, inst *server.Instan
 	if err := inst.Start(); err != nil {
 		return nil, fmt.Errorf("start: %w", err)
 	}
-	u.step(j, "verify", fmt.Sprintf("Watching logs for %s", tail))
+	u.step(j, "verify", fmt.Sprintf("Waiting for startup, then watching logs for %s", tail))
 	var errs []string
-	running := false
-	deadline := time.After(tail)
+	startDeadline := time.NewTimer(StartTimeout)
+	defer startDeadline.Stop()
+	var tailDone <-chan time.Time // armed once the server is up
 	for {
 		select {
-		case <-deadline:
-			if !running {
-				return errs, errors.New("server did not finish starting in time")
+		case <-startDeadline.C:
+			if tailDone == nil {
+				return errs, fmt.Errorf("server did not finish starting within %s", StartTimeout)
 			}
+		case <-tailDone:
 			return errs, nil
 		case <-ctx.Done():
 			return errs, ctx.Err()
@@ -385,7 +393,9 @@ func (u *Upgrader) startAndTail(ctx context.Context, j *Job, inst *server.Instan
 			}
 			switch e.Type {
 			case events.ServerOnline:
-				running = true
+				if tailDone == nil {
+					tailDone = time.After(tail)
+				}
 			case events.ServerCrash:
 				return errs, errors.New("server crashed after upgrade; the pre-upgrade backup can be restored")
 			case events.ConsoleOutput:
@@ -396,4 +406,19 @@ func (u *Upgrader) startAndTail(ctx context.Context, j *Job, inst *server.Instan
 			}
 		}
 	}
+}
+
+// Summary renders a job for notifications: title, description, success.
+func (j Job) Summary() (string, string, bool) {
+	if j.State == JobFailed {
+		return fmt.Sprintf("Upgrade to %s failed", j.To), j.Error, false
+	}
+	desc := fmt.Sprintf("Paper %s → %s", j.From, j.To)
+	if len(j.PluginsUpdated) > 0 {
+		desc += "\nUpdated: " + strings.Join(j.PluginsUpdated, ", ")
+	}
+	if len(j.PluginErrors) > 0 {
+		desc += fmt.Sprintf("\n⚠ %d plugin error(s) after start — check the console.", len(j.PluginErrors))
+	}
+	return "Upgrade complete", desc, true
 }

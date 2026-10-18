@@ -85,9 +85,10 @@ type Discord struct {
 }
 
 type Webhook struct {
-	Name   string          `yaml:"name"`
-	URL    string          `yaml:"url"`
-	Events map[string]bool `yaml:"events"`
+	Name    string          `yaml:"name"`
+	URL     string          `yaml:"url"`
+	Events  map[string]bool `yaml:"events"`
+	Servers []string        `yaml:"servers"` // server names; empty = all servers
 }
 
 type Java struct {

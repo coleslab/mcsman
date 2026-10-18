@@ -22,11 +22,13 @@ import (
 	"mcsman/internal/config"
 	"mcsman/internal/crypto"
 	"mcsman/internal/db"
+	"mcsman/internal/discord"
 	"mcsman/internal/events"
 	"mcsman/internal/plugin"
 	"mcsman/internal/server"
 	"mcsman/internal/testutil"
 	"mcsman/internal/whitelist"
+	"mcsman/internal/world"
 )
 
 const secret = "0123456789abcdef0123456789abcdef"
@@ -62,6 +64,7 @@ func newEnv(t *testing.T, trusted ...string) *env {
 	cfg := &config.Config{}
 	cfg.HTTP.TrustedProxies = trusted
 	authSvc := auth.NewService(d, secret, time.Minute, time.Hour)
+	whSealer, _ := crypto.NewSealer(secret, crypto.LabelWebhook)
 	a := New(Deps{
 		Config: cfg, DB: d, Auth: authSvc, Servers: m, Log: log,
 		Backups:   &backup.Manager{DB: d, Servers: m, Bus: bus, Log: log, DataDir: dir, Keep: 5},
@@ -69,6 +72,8 @@ func newEnv(t *testing.T, trusted ...string) *env {
 		Invites:   &auth.Invites{DB: d, Auth: authSvc, BaseURL: "https://mc.example.com", DefaultTTL: time.Hour},
 		Whitelist: &whitelist.Service{DB: d, Servers: m, Bus: bus, Log: log},
 		Plugins:   plugin.NewInstaller(d, m, log),
+		Discord:   &discord.Notifier{DB: d, Sealer: whSealer, Servers: m, Bus: bus, Log: log, HTTP: http.DefaultClient},
+		Worlds:    &world.Manager{DB: d, Servers: m, Log: log, Backups: &backup.Manager{DB: d, Servers: m, Bus: bus, Log: log, DataDir: dir, Keep: 5}},
 	})
 	e := &env{t: t, tcp: httptest.NewServer(a.Handler()), sock: a.SocketHandler(), db: d, servers: m}
 	t.Cleanup(func() {

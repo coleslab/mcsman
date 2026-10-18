@@ -21,6 +21,7 @@ import (
 	"mcsman/internal/config"
 	"mcsman/internal/crypto"
 	"mcsman/internal/db"
+	"mcsman/internal/discord"
 	"mcsman/internal/events"
 	"mcsman/internal/java"
 	"mcsman/internal/metrics"
@@ -28,6 +29,7 @@ import (
 	"mcsman/internal/server"
 	"mcsman/internal/version"
 	"mcsman/internal/whitelist"
+	"mcsman/internal/world"
 	"mcsman/web"
 )
 
@@ -101,10 +103,23 @@ func run(configPath string) error {
 		Servers: servers, DB: database, Bus: bus, Log: log,
 	}
 
+	webhookSealer, err := crypto.NewSealer(cfg.Auth.JWTSecret, crypto.LabelWebhook)
+	if err != nil {
+		return err
+	}
+	notifier := &discord.Notifier{
+		DB: database, Sealer: webhookSealer, Servers: servers, Bus: bus, Log: log,
+		HTTP: &http.Client{Timeout: 15 * time.Second},
+	}
+	if err := notifier.Seed(context.Background(), cfg.Discord.Webhooks); err != nil {
+		return fmt.Errorf("seed webhooks: %w", err)
+	}
+	worlds := &world.Manager{DB: database, Servers: servers, Backups: backups, Log: log}
+
 	apiSrv := api.New(api.Deps{
 		Config: cfg, DB: database, Auth: authSvc, Servers: servers, Backups: backups,
 		Versions: paper, Bus: bus, Invites: invites, Whitelist: wl,
-		Plugins: plugins, Upgrader: upgrader, Log: log, Web: web.Handler(),
+		Plugins: plugins, Upgrader: upgrader, Discord: notifier, Worlds: worlds, Log: log, Web: web.Handler(),
 	})
 
 	httpSrv := &http.Server{
@@ -145,6 +160,7 @@ func run(configPath string) error {
 	go housekeeping(ctx, apiSrv, database, log)
 	go (&metrics.Collector{Servers: servers, Bus: bus, Log: log}).Run(ctx)
 	go wl.Run(ctx)
+	go notifier.Run(ctx)
 
 	select {
 	case <-ctx.Done():

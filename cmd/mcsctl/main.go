@@ -51,6 +51,9 @@ Commands:
   upgrade preflight <server> <target-version>
   upgrade run <server> <target-version> [--delay SECONDS]
 
+  world import <server> <path-to-zip> [--name LABEL] [--force]
+  world export <server> [--output ./world.zip]
+
   user list
   user role <username> admin|player
   user remove <username>
@@ -115,6 +118,11 @@ func dispatch(c *client, args []string) error {
 			return errors.New("missing upgrade subcommand")
 		}
 		return dispatchUpgrade(c, args[1], args[2:])
+	case "world":
+		if len(args) < 2 {
+			return errors.New("missing world subcommand")
+		}
+		return dispatchWorld(c, args[1], args[2:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

@@ -7,6 +7,7 @@ import (
 
 	"mcsman/internal/auth"
 	"mcsman/internal/db"
+	"mcsman/internal/discord"
 	"mcsman/internal/plugin"
 	"mcsman/internal/server"
 )
@@ -37,6 +38,8 @@ func (s *Server) writeErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, "no release of this plugin supports the server's Minecraft version")
 	case errors.Is(err, plugin.ErrUnverifiable):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, discord.ErrInvalidURL):
+		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, plugin.ErrUnknownSource):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, server.ErrInvalid), errors.Is(err, auth.ErrWeakPassword), errors.Is(err, auth.ErrInvalidInput):

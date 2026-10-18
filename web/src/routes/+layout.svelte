@@ -39,6 +39,7 @@
 			? [
 					{ href: '/servers', label: 'Servers' },
 					{ href: '/users', label: 'Users' },
+					{ href: '/settings', label: 'Settings' },
 					{ href: '/status', label: 'Status' }
 				]
 			: [{ href: '/status', label: 'Status' }]
@@ -77,7 +78,7 @@
 					</svg>
 					<span class="uname">{session.user.username}</span>
 				</a>
-				<button class="ghost small" onclick={logout}>Log out</button>
+				<button class="ghost small logout" onclick={logout}>Log out</button>
 			{:else}
 				<a class="btn small-btn" href="/login">Log in</a>
 			{/if}
@@ -160,6 +161,13 @@
 		}
 		nav {
 			margin-left: 0;
+		}
+		nav a {
+			padding: 6px 7px;
+			font-size: 0.85rem;
+		}
+		.logout {
+			display: none;
 		}
 		.uname {
 			display: none;

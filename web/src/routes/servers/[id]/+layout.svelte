@@ -20,6 +20,7 @@
 		{ href: `${base}/console`, label: 'Console' },
 		{ href: `${base}/plugins`, label: 'Plugins' },
 		{ href: `${base}/backups`, label: 'Backups' },
+		{ href: `${base}/worlds`, label: 'World' },
 		{ href: `${base}/version`, label: 'Version' }
 	]);
 
@@ -140,6 +141,10 @@
 		border-bottom-color: var(--accent);
 	}
 	@media (max-width: 520px) {
+		.tabs {
+			scrollbar-width: none;
+			mask-image: linear-gradient(to right, #000 85%, transparent);
+		}
 		.tabs a {
 			padding: 10px 8px;
 			font-size: 0.875rem;

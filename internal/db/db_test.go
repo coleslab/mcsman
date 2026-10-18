@@ -97,3 +97,43 @@ func TestServerCRUD(t *testing.T) {
 		t.Errorf("events = %d", len(evs))
 	}
 }
+
+func TestWebhookServerScopeCascades(t *testing.T) {
+	ctx := context.Background()
+	d := openTest(t)
+	a := &Server{Name: "a", Directory: "/a", MCVersion: "1.21.1", JavaVersion: "21", Port: 30000, RCONPort: 30010, RCONPasswordEnc: "x", MaxMemoryMB: 1024}
+	b := &Server{Name: "b", Directory: "/b", MCVersion: "1.21.1", JavaVersion: "21", Port: 30001, RCONPort: 30011, RCONPasswordEnc: "x", MaxMemoryMB: 1024}
+	d.CreateServer(ctx, a)
+	d.CreateServer(ctx, b)
+	w := &Webhook{Name: "w", URLEnc: "enc", Events: map[string]bool{}, ServerIDs: []string{a.ID, b.ID}}
+	only := &Webhook{Name: "only-a", URLEnc: "enc", Events: map[string]bool{}, ServerIDs: []string{a.ID}}
+	if err := d.CreateWebhook(ctx, only); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CreateWebhook(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := d.WebhookByID(ctx, w.ID)
+	if len(got.ServerIDs) != 2 || !got.AppliesTo(a.ID) {
+		t.Fatalf("scope %v", got.ServerIDs)
+	}
+	// Deleting a server removes it from the scope.
+	d.DeleteServer(ctx, a.ID)
+	got, _ = d.WebhookByID(ctx, w.ID)
+	if len(got.ServerIDs) != 1 || got.ServerIDs[0] != b.ID || got.AppliesTo(a.ID) {
+		t.Errorf("after server delete: %v", got.ServerIDs)
+	}
+	// A webhook whose only server was deleted applies to nothing — it must
+	// not widen to every server.
+	o, _ := d.WebhookByID(ctx, only.ID)
+	if len(o.ServerIDs) != 0 || o.AllServers || o.AppliesTo(b.ID) {
+		t.Errorf("orphaned scope widened: all=%v ids=%v", o.AllServers, o.ServerIDs)
+	}
+	// Switching to all servers.
+	got.AllServers = true
+	d.UpdateWebhook(ctx, got)
+	got, _ = d.WebhookByID(ctx, w.ID)
+	if len(got.ServerIDs) != 0 || !got.AppliesTo("anything") {
+		t.Errorf("cleared scope: %v", got.ServerIDs)
+	}
+}

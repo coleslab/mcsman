@@ -14,11 +14,13 @@ import (
 	"mcsman/internal/backup"
 	"mcsman/internal/config"
 	"mcsman/internal/db"
+	"mcsman/internal/discord"
 	"mcsman/internal/events"
 	"mcsman/internal/plugin"
 	"mcsman/internal/server"
 	"mcsman/internal/version"
 	"mcsman/internal/whitelist"
+	"mcsman/internal/world"
 )
 
 // Deps are the API's collaborators.
@@ -34,6 +36,8 @@ type Deps struct {
 	Whitelist *whitelist.Service
 	Plugins   *plugin.Installer
 	Upgrader  *version.Upgrader
+	Discord   *discord.Notifier
+	Worlds    *world.Manager
 	Log       *slog.Logger
 	// Web serves the embedded UI for non-API paths; nil disables it.
 	Web http.Handler
@@ -52,6 +56,8 @@ type Server struct {
 	whitelist *whitelist.Service
 	plugins   *plugin.Installer
 	upgrader  *version.Upgrader
+	discord   *discord.Notifier
+	worlds    *world.Manager
 	log       *slog.Logger
 	web       http.Handler
 	tickets   *ticketStore
@@ -65,7 +71,7 @@ func New(d Deps) *Server {
 	return &Server{
 		cfg: d.Config, db: d.DB, auth: d.Auth, servers: d.Servers, backups: d.Backups,
 		versions: d.Versions, bus: d.Bus, invites: d.Invites, whitelist: d.Whitelist,
-		plugins: d.Plugins, upgrader: d.Upgrader, log: d.Log, web: d.Web,
+		plugins: d.Plugins, upgrader: d.Upgrader, discord: d.Discord, worlds: d.Worlds, log: d.Log, web: d.Web,
 		tickets:      newTicketStore(),
 		loginLimit:   newRateLimiter(10),
 		refreshLimit: newRateLimiter(20),
@@ -110,6 +116,14 @@ func (s *Server) router() http.Handler {
 		r.Get("/servers/{id}/console", s.handleConsole)
 		r.Get("/events", s.handleEvents)
 
+		// Large downloads accept ?ticket= so browsers can stream them to
+		// disk with a plain link instead of buffering via fetch.
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireAuthOrTicket, requireAdmin)
+			r.Get("/servers/{id}/backups/{backup_id}/download", s.handleDownloadBackup)
+			r.Get("/servers/{id}/worlds/export", s.handleExportWorld)
+		})
+
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAuth)
 
@@ -124,6 +138,7 @@ func (s *Server) router() http.Handler {
 			r.Get("/versions/paper", s.handlePaperVersions)
 			r.Get("/servers/{id}/plugins", s.handleListPlugins)
 			r.Get("/plugins/search", s.handleSearchPlugins)
+			r.Get("/servers/{id}/worlds/imports", s.handleWorldImports)
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireAdmin)
@@ -146,7 +161,6 @@ func (s *Server) router() http.Handler {
 				r.Post("/servers/{id}/backups", s.handleCreateBackup)
 				r.Post("/servers/{id}/backups/{backup_id}/restore", s.handleRestoreBackup)
 				r.Delete("/servers/{id}/backups/{backup_id}", s.handleDeleteBackup)
-				r.Get("/servers/{id}/backups/{backup_id}/download", s.handleDownloadBackup)
 				r.Post("/servers/{id}/plugins", s.handleInstallPlugin)
 				r.Get("/servers/{id}/plugins/updates", s.handlePluginUpdates)
 				r.Delete("/servers/{id}/plugins/{plugin_id}", s.handleRemovePlugin)
@@ -154,6 +168,13 @@ func (s *Server) router() http.Handler {
 				r.Post("/servers/{id}/upgrade", s.handleUpgradePreflight)
 				r.Post("/servers/{id}/upgrade/confirm", s.handleUpgradeConfirm)
 				r.Get("/servers/{id}/upgrade/status", s.handleUpgradeStatus)
+				r.Post("/servers/{id}/worlds/import", s.handleImportWorld)
+
+				r.Get("/webhooks", s.handleListWebhooks)
+				r.Post("/webhooks", s.handleCreateWebhook)
+				r.Patch("/webhooks/{id}", s.handleUpdateWebhook)
+				r.Delete("/webhooks/{id}", s.handleDeleteWebhook)
+				r.Post("/webhooks/{id}/test", s.handleTestWebhook)
 			})
 		})
 	})

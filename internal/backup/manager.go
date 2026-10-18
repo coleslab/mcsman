@@ -100,7 +100,7 @@ func (m *Manager) create(ctx context.Context, inst *server.Instance, opts Option
 		return nil, fmt.Errorf("%w: cannot back up while server is %s", server.ErrConflict, status)
 	}
 
-	worlds, err := worldDirs(srv.Directory)
+	worlds, err := WorldDirs(srv.Directory)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +321,7 @@ func (m *Manager) Restore(ctx context.Context, serverID, backupID string, by *st
 		}
 	}
 
-	if _, err := worldDirs(srv.Directory); err == nil {
+	if _, err := WorldDirs(srv.Directory); err == nil {
 		if _, err := m.create(ctx, inst, Options{Tag: "pre-restore", CreatedBy: by}); err != nil {
 			return fmt.Errorf("pre-restore backup: %w", err)
 		}
@@ -372,13 +372,10 @@ func (m *Manager) logEvent(serverID string, detail map[string]any) {
 	}
 }
 
-// worldDirs lists the server's world directories: level-name plus the
+// WorldDirs lists the server's world directories: level-name plus the
 // _nether/_the_end variants used by versions before 26.1.
-func worldDirs(serverDir string) ([]string, error) {
-	level := "world"
-	if props, err := readLevelName(serverDir); err == nil && props != "" {
-		level = props
-	}
+func WorldDirs(serverDir string) ([]string, error) {
+	level := LevelName(serverDir)
 	var out []string
 	for _, d := range []string{level, level + "_nether", level + "_the_end"} {
 		p, err := fsutil.SafePath(serverDir, d)
@@ -395,17 +392,19 @@ func worldDirs(serverDir string) ([]string, error) {
 	return out, nil
 }
 
-func readLevelName(dir string) (string, error) {
+// LevelName returns the server's level-name from server.properties
+// (default "world").
+func LevelName(dir string) string {
 	raw, err := os.ReadFile(filepath.Join(dir, "server.properties"))
 	if err != nil {
-		return "", err
+		return "world"
 	}
 	for _, line := range strings.Split(string(raw), "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "level-name="); ok {
-			return strings.TrimSpace(v), nil
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "level-name="); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
 		}
 	}
-	return "", nil
+	return "world"
 }
 
 func isWorldName(s string) bool {

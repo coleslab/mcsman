@@ -103,7 +103,7 @@
 						<span class="muted small">{bytes(b.size_bytes)} · {ago(b.created_at)}</span>
 					</div>
 					<div class="btns">
-						<button class="small" onclick={() => api.downloadBackup(ctx.id, b, ctx.server?.name ?? 'server')}>
+						<button class="small" onclick={() => api.downloadBackup(ctx.id, b)}>
 							Download
 						</button>
 						<button

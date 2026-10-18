@@ -153,6 +153,25 @@ export interface UpgradeJob {
 	finished_at?: number;
 }
 
+export interface Webhook {
+	id: string;
+	name: string;
+	url_masked: string;
+	events: Record<string, boolean>;
+	all_servers: boolean;
+	server_ids: string[];
+	server_names: string[];
+	created_at: number;
+}
+
+export interface WorldImport {
+	id: string;
+	imported_at: number;
+	source_name: string;
+	source_mc_version: string;
+	pre_import_backup_id: string | null;
+}
+
 export class ApiError extends Error {
 	constructor(
 		public status: number,
@@ -300,16 +319,20 @@ export const api = {
 		request('POST', `/api/servers/${id}/backups/${bid}/restore`),
 	deleteBackup: (id: string, bid: string) =>
 		request('DELETE', `/api/servers/${id}/backups/${bid}`),
-	async downloadBackup(id: string, b: Backup, serverName: string) {
-		const res = await raw('GET', `/api/servers/${id}/backups/${b.id}/download`);
-		if (!res.ok) throw new ApiError(res.status, 'download failed');
-		const url = URL.createObjectURL(await res.blob());
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = `${serverName}_${b.filename}`;
-		a.click();
-		setTimeout(() => URL.revokeObjectURL(url), 10_000);
-	},
+	downloadBackup: (id: string, b: Backup) => download(`/api/servers/${id}/backups/${b.id}/download`),
+	exportWorld: (id: string) => download(`/api/servers/${id}/worlds/export`),
+	worldImports: (id: string) => request<WorldImport[]>('GET', `/api/servers/${id}/worlds/imports`),
+
+	webhooks: () => request<{ webhooks: Webhook[]; event_keys: string[] }>('GET', '/api/webhooks'),
+	createWebhook: (name: string, url: string, server_ids: string[] = []) =>
+		request<Webhook>('POST', '/api/webhooks', { name, url, server_ids }),
+	updateWebhook: (
+		id: string,
+		body: { name?: string; url?: string; events?: Record<string, boolean>; server_ids?: string[] }
+	) =>
+		request<Webhook>('PATCH', `/api/webhooks/${id}`, body),
+	deleteWebhook: (id: string) => request('DELETE', `/api/webhooks/${id}`),
+	testWebhook: (id: string) => request('POST', `/api/webhooks/${id}/test`),
 
 	status: () => request<{ servers: PublicServer[] }>('GET', '/api/status'),
 
@@ -356,6 +379,54 @@ export const api = {
 	paperVersions: (refresh = false) =>
 		request<{ versions: string[] }>('GET', `/api/versions/paper${refresh ? '?refresh=true' : ''}`)
 };
+
+/**
+ * Starts a streamed download: a single-use ticket authorises a plain
+ * navigation, so large files go straight to disk instead of memory.
+ */
+async function download(path: string) {
+	const { ticket } = await api.wsTicket();
+	const a = document.createElement('a');
+	a.href = `${path}?ticket=${encodeURIComponent(ticket)}`;
+	a.rel = 'noopener';
+	document.body.append(a);
+	a.click();
+	a.remove();
+}
+
+/** Uploads a world zip with progress reporting (fetch can't report upload progress). */
+export async function importWorld(
+	id: string,
+	file: File,
+	opts: { sourceName?: string; force?: boolean },
+	onProgress: (fraction: number) => void
+): Promise<WorldImport> {
+	// Make sure the access token is fresh before a long upload.
+	await api.me();
+	const form = new FormData();
+	if (opts.sourceName) form.append('source_name', opts.sourceName);
+	if (opts.force) form.append('force', 'true');
+	form.append('world', file);
+	return new Promise((resolve, reject) => {
+		const xhr = new XMLHttpRequest();
+		xhr.open('POST', `/api/servers/${id}/worlds/import`);
+		const at = tokens.access;
+		if (at) xhr.setRequestHeader('Authorization', `Bearer ${at}`);
+		xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+		xhr.onload = () => {
+			let body: { error?: string; inspection?: unknown } & Partial<WorldImport> = {};
+			try {
+				body = JSON.parse(xhr.responseText);
+			} catch {
+				/* non-JSON */
+			}
+			if (xhr.status === 201) resolve(body as WorldImport);
+			else reject(Object.assign(new ApiError(xhr.status, body.error ?? xhr.statusText), { inspection: body.inspection }));
+		};
+		xhr.onerror = () => reject(new ApiError(0, 'Upload failed: network error'));
+		xhr.send(form);
+	});
+}
 
 /** Opens an authenticated WebSocket using a single-use ticket. */
 export async function openSocket(path: string): Promise<WebSocket> {
