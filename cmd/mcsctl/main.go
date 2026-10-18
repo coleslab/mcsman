@@ -42,6 +42,15 @@ Commands:
   invite list
   invite revoke <invite-id>
 
+  plugin search <query> [--mc-version V] [--source modrinth|hangar]
+  plugin install <server> <modrinth-id|hangar-owner/slug> [--version ID]
+  plugin list <server>
+  plugin update <server> [<plugin-id> | --all]
+  plugin remove <server> <plugin-id>
+
+  upgrade preflight <server> <target-version>
+  upgrade run <server> <target-version> [--delay SECONDS]
+
   user list
   user role <username> admin|player
   user remove <username>
@@ -96,6 +105,16 @@ func dispatch(c *client, args []string) error {
 			return errors.New("missing user subcommand")
 		}
 		return dispatchUser(c, args[1], args[2:])
+	case "plugin":
+		if len(args) < 2 {
+			return errors.New("missing plugin subcommand")
+		}
+		return dispatchPlugin(c, args[1], args[2:])
+	case "upgrade":
+		if len(args) < 2 {
+			return errors.New("missing upgrade subcommand")
+		}
+		return dispatchUpgrade(c, args[1], args[2:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

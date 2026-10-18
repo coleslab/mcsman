@@ -23,6 +23,7 @@ import (
 	"mcsman/internal/crypto"
 	"mcsman/internal/db"
 	"mcsman/internal/events"
+	"mcsman/internal/plugin"
 	"mcsman/internal/server"
 	"mcsman/internal/testutil"
 	"mcsman/internal/whitelist"
@@ -67,6 +68,7 @@ func newEnv(t *testing.T, trusted ...string) *env {
 		Bus:       bus,
 		Invites:   &auth.Invites{DB: d, Auth: authSvc, BaseURL: "https://mc.example.com", DefaultTTL: time.Hour},
 		Whitelist: &whitelist.Service{DB: d, Servers: m, Bus: bus, Log: log},
+		Plugins:   plugin.NewInstaller(d, m, log),
 	})
 	e := &env{t: t, tcp: httptest.NewServer(a.Handler()), sock: a.SocketHandler(), db: d, servers: m}
 	t.Cleanup(func() {

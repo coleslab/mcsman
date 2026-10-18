@@ -95,7 +95,7 @@ func (m *Manager) Ensure(ctx context.Context, major int) (string, error) {
 	}
 	tarball := filepath.Join(m.CacheDir, fmt.Sprintf(".jre-%d.tar.gz", major))
 	defer os.Remove(tarball)
-	if err := fsutil.DownloadVerified(ctx, m.HTTP, asset.link, asset.checksum, tarball, 0o640, nil); err != nil {
+	if _, err := fsutil.DownloadVerified(ctx, m.HTTP, asset.link, fsutil.SHA256(asset.checksum), tarball, 0o640, nil); err != nil {
 		return "", fmt.Errorf("download java %d: %w", major, err)
 	}
 

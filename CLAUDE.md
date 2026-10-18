@@ -34,6 +34,10 @@ see "Decisions" below.
 ## Operational notes
 - Paper binds RCON on all interfaces (no separate bind option); firewall the RCON ports.
 - External APIs: Paper Fill v3 (`fill.papermc.io/v3`; v2 is 410 Gone), Adoptium v3 for JREs.
+- Modrinth publishes sha512/sha1 only (no sha256): plugin downloads verify against sha512;
+  the `plugins.sha256` column is our own digest of the installed file. Hangar gives sha256;
+  Hangar releases with only an `externalUrl` are refused (unverifiable).
+- Upgrades are stage-then-commit: backup, download JAR/Java/plugins, then swap all at once.
 
 ## Workflow
 Phase-by-phase; after each phase demo + wait for user confirmation, then one commit.

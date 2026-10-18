@@ -3,6 +3,7 @@ package fsutil
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"errors"
 	"net/http"
@@ -60,7 +61,7 @@ func TestDownloadVerified(t *testing.T) {
 
 	dir := t.TempDir()
 	dst := filepath.Join(dir, "a.jar")
-	if err := DownloadVerified(context.Background(), srv.Client(), srv.URL, good, dst, 0o640, nil); err != nil {
+	if _, err := DownloadVerified(context.Background(), srv.Client(), srv.URL, SHA256(good), dst, 0o640, nil); err != nil {
 		t.Fatal(err)
 	}
 	if fi, err := os.Stat(dst); err != nil || fi.Mode().Perm() != 0o640 {
@@ -69,7 +70,7 @@ func TestDownloadVerified(t *testing.T) {
 
 	bad := filepath.Join(dir, "b.jar")
 	wrong := hex.EncodeToString(make([]byte, 32))
-	if err := DownloadVerified(context.Background(), srv.Client(), srv.URL, wrong, bad, 0o640, nil); err == nil {
+	if _, err := DownloadVerified(context.Background(), srv.Client(), srv.URL, SHA256(wrong), bad, 0o640, nil); err == nil {
 		t.Fatal("expected mismatch error")
 	}
 	if _, err := os.Stat(bad); !os.IsNotExist(err) {
@@ -78,5 +79,26 @@ func TestDownloadVerified(t *testing.T) {
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 1 {
 		t.Errorf("temp file left behind: %v", entries)
+	}
+}
+
+func TestDownloadVerifiedSHA512(t *testing.T) {
+	body := []byte("plugin jar")
+	s512 := sha512.Sum512(body)
+	s256 := sha256.Sum256(body)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(body) }))
+	defer srv.Close()
+	dst := filepath.Join(t.TempDir(), "p.jar")
+	got, err := DownloadVerified(context.Background(), srv.Client(), srv.URL,
+		Checksum{Algo: "sha512", Hex: hex.EncodeToString(s512[:])}, dst, 0o640, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != hex.EncodeToString(s256[:]) {
+		t.Error("returned sha256 mismatch")
+	}
+	if _, err := DownloadVerified(context.Background(), srv.Client(), srv.URL,
+		Checksum{Algo: "md5", Hex: "00"}, dst, 0o640, nil); err == nil {
+		t.Error("unsupported algorithm accepted")
 	}
 }

@@ -216,3 +216,30 @@ func TestChangePassword(t *testing.T) {
 	}
 	e.login("admin", "newpassword1")
 }
+
+func TestPluginEndpointsAccess(t *testing.T) {
+	e := newEnv(t)
+	e.initAdmin()
+	admin, _ := e.login("admin", "password123")
+	srv := e.createServer(t, admin, "survival", nil)
+	id := srv["id"].(string)
+	_, inv := e.call("POST", "/api/invites", admin, nil)
+	_, red := e.call("POST", "/api/invites/"+inv["token"].(string)+"/redeem", "", map[string]string{"username": "p", "password": "password123"})
+	player := red["access_token"].(string)
+
+	if resp, _ := e.call("GET", "/api/servers/"+id+"/plugins", player, nil); resp.StatusCode != 200 {
+		t.Errorf("player list plugins: %d", resp.StatusCode)
+	}
+	if resp, _ := e.call("POST", "/api/servers/"+id+"/plugins", player, map[string]string{"source": "modrinth", "source_id": "x"}); resp.StatusCode != 403 {
+		t.Errorf("player install: %d", resp.StatusCode)
+	}
+	if resp, _ := e.call("POST", "/api/servers/"+id+"/plugins", admin, map[string]string{"source": "nope", "source_id": "x"}); resp.StatusCode != 400 {
+		t.Errorf("unknown source: %d", resp.StatusCode)
+	}
+	if resp, _ := e.call("POST", "/api/servers/"+id+"/upgrade", player, map[string]string{"target_version": "1.21.4"}); resp.StatusCode != 403 {
+		t.Errorf("player preflight: %d", resp.StatusCode)
+	}
+	if resp, _ := e.call("GET", "/api/plugins/search", admin, nil); resp.StatusCode != 400 {
+		t.Errorf("search without q: %d", resp.StatusCode)
+	}
+}

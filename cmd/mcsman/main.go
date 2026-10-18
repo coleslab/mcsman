@@ -24,6 +24,7 @@ import (
 	"mcsman/internal/events"
 	"mcsman/internal/java"
 	"mcsman/internal/metrics"
+	"mcsman/internal/plugin"
 	"mcsman/internal/server"
 	"mcsman/internal/version"
 	"mcsman/internal/whitelist"
@@ -67,19 +68,19 @@ func run(configPath string) error {
 		return err
 	}
 	if cfg.HTTP.BaseURL != "" {
+		// PaperMC and Modrinth ask clients to identify themselves.
 		version.UserAgent = "mcsman/1.0 (+" + cfg.HTTP.BaseURL + ")"
+		plugin.UserAgent = version.UserAgent
 	}
 	bus := events.NewBus()
 	authSvc := auth.NewService(database, cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL.D(), cfg.Auth.RefreshTokenTTL.D())
 	javaMgr := java.NewManager(cfg.Java.CacheDir, log)
 	paper := version.NewClient()
+	jars := &version.JarStore{Dir: filepath.Join(cfg.Daemon.DataDir, "jars", "paper"), Client: paper}
 	servers := server.NewManager(server.Options{
 		DB: database, Bus: bus, Sealer: rconSealer, DataDir: cfg.Daemon.DataDir, Logger: log,
-		Java: javaMgr.Resolve,
-		Provisioner: &version.Provisioner{
-			Client: paper,
-			Jars:   &version.JarStore{Dir: filepath.Join(cfg.Daemon.DataDir, "jars", "paper"), Client: paper},
-		},
+		Java:        javaMgr.Resolve,
+		Provisioner: &version.Provisioner{Client: paper, Jars: jars},
 	})
 	if err := servers.Load(context.Background()); err != nil {
 		return fmt.Errorf("load servers: %w", err)
@@ -94,9 +95,16 @@ func run(configPath string) error {
 		DB: database, Auth: authSvc, BaseURL: cfg.HTTP.BaseURL, DefaultTTL: cfg.Auth.InviteDefaultTTL.D(),
 	}
 
+	plugins := plugin.NewInstaller(database, servers, log, plugin.NewModrinth(""), plugin.NewHangar(""))
+	upgrader := &version.Upgrader{
+		Paper: paper, Jars: jars, Java: javaMgr, Plugins: plugins, Backups: backups,
+		Servers: servers, DB: database, Bus: bus, Log: log,
+	}
+
 	apiSrv := api.New(api.Deps{
 		Config: cfg, DB: database, Auth: authSvc, Servers: servers, Backups: backups,
-		Versions: paper, Bus: bus, Invites: invites, Whitelist: wl, Log: log, Web: web.Handler(),
+		Versions: paper, Bus: bus, Invites: invites, Whitelist: wl,
+		Plugins: plugins, Upgrader: upgrader, Log: log, Web: web.Handler(),
 	})
 
 	httpSrv := &http.Server{

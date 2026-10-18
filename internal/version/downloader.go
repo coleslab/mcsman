@@ -37,7 +37,7 @@ func (s *JarStore) Ensure(ctx context.Context, b *Build) (string, error) {
 		return dst, nil
 	}
 	hdr := http.Header{"User-Agent": {UserAgent}}
-	if err := fsutil.DownloadVerified(ctx, s.Client.HTTP, b.URL, b.SHA256, dst, 0o640, hdr); err != nil {
+	if _, err := fsutil.DownloadVerified(ctx, s.Client.HTTP, b.URL, fsutil.SHA256(b.SHA256), dst, 0o640, hdr); err != nil {
 		return "", fmt.Errorf("download paper %s build %d: %w", b.Version, b.ID, err)
 	}
 	return dst, nil

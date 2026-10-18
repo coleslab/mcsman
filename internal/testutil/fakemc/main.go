@@ -6,7 +6,8 @@
 // save-all, save-off, save-on, whitelist add <name>.
 // Marker files in the working directory alter behaviour: "fakemc.ignore-stop"
 // makes it ignore the stop command and "fakemc.ignore-term" makes it ignore
-// SIGTERM (to exercise the stop escalation path).
+// SIGTERM (to exercise the stop escalation path); "fakemc.plugin-error"
+// prints a plugin enable error after startup.
 package main
 
 import (
@@ -69,6 +70,9 @@ func main() {
 	}
 	time.Sleep(200 * time.Millisecond)
 	logf(`Done (0.200s)! For help, type "help"`)
+	if exists("fakemc.plugin-error") {
+		logf("Error occurred while enabling BrokenPlugin v1.0 (Is it up to date?)")
+	}
 
 	sc := bufio.NewScanner(os.Stdin)
 	for sc.Scan() {

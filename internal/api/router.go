@@ -15,6 +15,7 @@ import (
 	"mcsman/internal/config"
 	"mcsman/internal/db"
 	"mcsman/internal/events"
+	"mcsman/internal/plugin"
 	"mcsman/internal/server"
 	"mcsman/internal/version"
 	"mcsman/internal/whitelist"
@@ -31,6 +32,8 @@ type Deps struct {
 	Bus       *events.Bus
 	Invites   *auth.Invites
 	Whitelist *whitelist.Service
+	Plugins   *plugin.Installer
+	Upgrader  *version.Upgrader
 	Log       *slog.Logger
 	// Web serves the embedded UI for non-API paths; nil disables it.
 	Web http.Handler
@@ -47,6 +50,8 @@ type Server struct {
 	bus       *events.Bus
 	invites   *auth.Invites
 	whitelist *whitelist.Service
+	plugins   *plugin.Installer
+	upgrader  *version.Upgrader
 	log       *slog.Logger
 	web       http.Handler
 	tickets   *ticketStore
@@ -59,7 +64,8 @@ type Server struct {
 func New(d Deps) *Server {
 	return &Server{
 		cfg: d.Config, db: d.DB, auth: d.Auth, servers: d.Servers, backups: d.Backups,
-		versions: d.Versions, bus: d.Bus, invites: d.Invites, whitelist: d.Whitelist, log: d.Log, web: d.Web,
+		versions: d.Versions, bus: d.Bus, invites: d.Invites, whitelist: d.Whitelist,
+		plugins: d.Plugins, upgrader: d.Upgrader, log: d.Log, web: d.Web,
 		tickets:      newTicketStore(),
 		loginLimit:   newRateLimiter(10),
 		refreshLimit: newRateLimiter(20),
@@ -116,6 +122,8 @@ func (s *Server) router() http.Handler {
 			r.Get("/servers/{id}/players", s.handlePlayers)
 			r.Get("/servers/{id}/backups", s.handleListBackups)
 			r.Get("/versions/paper", s.handlePaperVersions)
+			r.Get("/servers/{id}/plugins", s.handleListPlugins)
+			r.Get("/plugins/search", s.handleSearchPlugins)
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireAdmin)
@@ -139,6 +147,13 @@ func (s *Server) router() http.Handler {
 				r.Post("/servers/{id}/backups/{backup_id}/restore", s.handleRestoreBackup)
 				r.Delete("/servers/{id}/backups/{backup_id}", s.handleDeleteBackup)
 				r.Get("/servers/{id}/backups/{backup_id}/download", s.handleDownloadBackup)
+				r.Post("/servers/{id}/plugins", s.handleInstallPlugin)
+				r.Get("/servers/{id}/plugins/updates", s.handlePluginUpdates)
+				r.Delete("/servers/{id}/plugins/{plugin_id}", s.handleRemovePlugin)
+				r.Post("/servers/{id}/plugins/{plugin_id}/update", s.handleUpdatePlugin)
+				r.Post("/servers/{id}/upgrade", s.handleUpgradePreflight)
+				r.Post("/servers/{id}/upgrade/confirm", s.handleUpgradeConfirm)
+				r.Get("/servers/{id}/upgrade/status", s.handleUpgradeStatus)
 			})
 		})
 	})

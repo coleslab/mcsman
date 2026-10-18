@@ -70,7 +70,13 @@
 				{#if !live.connected}
 					<span class="offline" title="Live updates disconnected; reconnecting…">offline</span>
 				{/if}
-				<a href="/account" class="user" class:active={path.startsWith('/account')}>{session.user.username}</a>
+				<a href="/account" class="user" class:active={path.startsWith('/account')} aria-label="Account">
+					<svg class="icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+						<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2" />
+						<path d="M4 21c0-4 4-6 8-6s8 2 8 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+					</svg>
+					<span class="uname">{session.user.username}</span>
+				</a>
 				<button class="ghost small" onclick={logout}>Log out</button>
 			{:else}
 				<a class="btn small-btn" href="/login">Log in</a>
@@ -130,6 +136,13 @@
 		color: var(--text);
 		background: var(--surface-2);
 	}
+	.user {
+		display: flex;
+		align-items: center;
+	}
+	.user .icon {
+		display: none;
+	}
 	.small-btn {
 		min-height: 34px;
 		font-size: 0.9rem;
@@ -148,11 +161,11 @@
 		nav {
 			margin-left: 0;
 		}
-		.user {
-			max-width: 90px;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
+		.uname {
+			display: none;
+		}
+		.user .icon {
+			display: block;
 		}
 	}
 </style>

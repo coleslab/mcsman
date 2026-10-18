@@ -18,7 +18,9 @@
 	const tabs = $derived([
 		{ href: base, label: 'Overview' },
 		{ href: `${base}/console`, label: 'Console' },
-		{ href: `${base}/backups`, label: 'Backups' }
+		{ href: `${base}/plugins`, label: 'Plugins' },
+		{ href: `${base}/backups`, label: 'Backups' },
+		{ href: `${base}/version`, label: 'Version' }
 	]);
 
 	async function act(name: string, fn: () => Promise<unknown>) {
@@ -138,6 +140,10 @@
 		border-bottom-color: var(--accent);
 	}
 	@media (max-width: 520px) {
+		.tabs a {
+			padding: 10px 8px;
+			font-size: 0.875rem;
+		}
 		.actions {
 			width: 100%;
 		}

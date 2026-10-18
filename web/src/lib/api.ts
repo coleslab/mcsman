@@ -89,6 +89,70 @@ export interface WhitelistedServer {
 	queued: boolean;
 }
 
+export interface Plugin {
+	id: string;
+	server_id: string;
+	name: string;
+	version: string;
+	source: 'modrinth' | 'hangar' | 'manual';
+	source_id: string | null;
+	filename: string;
+	installed_at: number;
+	updated_at: number;
+}
+
+export interface PluginSearchResult {
+	source: 'modrinth' | 'hangar';
+	id: string;
+	slug: string;
+	name: string;
+	description: string;
+	author: string;
+	downloads: number;
+	icon_url: string;
+	page_url: string;
+}
+
+export interface PluginUpdate {
+	plugin_id: string;
+	current: string;
+	latest: string;
+}
+
+export interface Compat {
+	plugin: Plugin;
+	status: 'green' | 'amber' | 'gray';
+	release?: { version: string };
+	error?: string;
+}
+
+export interface Preflight {
+	current_version: string;
+	target_version: string;
+	target_build: number;
+	current_java: number;
+	required_java: number;
+	java_change: boolean;
+	plugins: Compat[];
+	warnings: string[];
+	blockers: string[];
+	can_upgrade: boolean;
+}
+
+export interface UpgradeJob {
+	from: string;
+	to: string;
+	state: 'running' | 'succeeded' | 'failed';
+	phase: string;
+	error?: string;
+	backup_id?: string;
+	plugins_updated: string[];
+	plugin_errors: string[];
+	steps: { phase: string; detail: string; ts: number }[];
+	started_at: number;
+	finished_at?: number;
+}
+
 export class ApiError extends Error {
 	constructor(
 		public status: number,
@@ -269,6 +333,25 @@ export const api = {
 	deleteUser: (id: string) => request('DELETE', `/api/users/${id}`),
 	changePassword: (current: string, next: string) =>
 		request('POST', '/api/users/me/password', { current, new: next }),
+
+	plugins: (id: string) => request<Plugin[]>('GET', `/api/servers/${id}/plugins`),
+	searchPlugins: (q: string, mc_version: string) =>
+		request<{ results: PluginSearchResult[]; errors: Record<string, string> }>(
+			'GET',
+			`/api/plugins/search?${new URLSearchParams({ q, mc_version })}`
+		),
+	installPlugin: (id: string, source: string, source_id: string) =>
+		request<Plugin>('POST', `/api/servers/${id}/plugins`, { source, source_id }),
+	updatePlugin: (id: string, pid: string) =>
+		request<{ plugin: Plugin; updated: boolean }>('POST', `/api/servers/${id}/plugins/${pid}/update`),
+	removePlugin: (id: string, pid: string) => request('DELETE', `/api/servers/${id}/plugins/${pid}`),
+	pluginUpdates: (id: string) => request<PluginUpdate[]>('GET', `/api/servers/${id}/plugins/updates`),
+
+	preflight: (id: string, target_version: string) =>
+		request<Preflight>('POST', `/api/servers/${id}/upgrade`, { target_version }),
+	confirmUpgrade: (id: string, target_version: string, delay_seconds?: number) =>
+		request<UpgradeJob>('POST', `/api/servers/${id}/upgrade/confirm`, { target_version, delay_seconds }),
+	upgradeStatus: (id: string) => request<{ job: UpgradeJob | null }>('GET', `/api/servers/${id}/upgrade/status`),
 
 	paperVersions: (refresh = false) =>
 		request<{ versions: string[] }>('GET', `/api/versions/paper${refresh ? '?refresh=true' : ''}`)

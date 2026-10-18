@@ -19,6 +19,7 @@ var (
 	adminEventTypes = map[string]bool{
 		events.BackupProgress: true, events.UpgradeProgress: true,
 		events.BackupComplete: true, events.BackupFailed: true, events.ServerCrash: true,
+		events.UpgradeComplete: true,
 	}
 )
 
