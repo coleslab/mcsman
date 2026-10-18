@@ -47,7 +47,7 @@ sudo systemctl enable --now mcsman@YOURUSER
 mcsctl init
 ```
 
-Open `http://<host>:8080` (or your reverse proxy URL) and log in.
+Open `http://<host>:8420` (or your public URL) and log in.
 
 ### Manual install
 
@@ -61,23 +61,62 @@ make systemd                        # renders bin/mcsman.service for the current
 
 | Port | Purpose | Expose? |
 |---|---|---|
-| 25565 (per server) | Minecraft | Yes — forward it, or use a tunnel (e.g. playit.gg) |
-| game port + 10 | RCON | **No.** Paper binds RCON on all interfaces; firewall it |
-| 8080 | Web UI / API | Behind a reverse proxy with HTTPS |
+| 8420 | Web UI / API | LAN directly; internet via a tunnel or reverse proxy |
+| 25565… (one per server) | Minecraft | Via playit.gg, a router port-forward, or similar |
+| game port + 10 | RCON | **Never.** Paper binds RCON on all interfaces; keep it firewalled and untunnelled |
 
-Example Caddy config:
+### Cloudflare Tunnel (web UI) + playit.gg (game)
+
+Web UI through a `cloudflared` container on the host network:
+
+```yaml
+# docker-compose.yml
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
+    network_mode: host        # reaches mcsman at localhost:8420
+    restart: unless-stopped
+```
+
+In Zero Trust → Networks → Tunnels → Public Hostname, route `mc.example.com`
+to `HTTP` → `localhost:8420`. Don't set an HTTP Host header override (the live
+console's WebSocket checks it). Then:
+
+```yaml
+http:
+  listen: 0.0.0.0:8420            # LAN clients connect directly
+  base_url: https://mc.example.com
+  trusted_proxies: [127.0.0.1]    # cloudflared; its CF-Connecting-IP is trusted
+```
+
+`trusted_proxies` makes per-client rate limits work: without it, every
+tunnelled request looks like it comes from cloudflared and all users share one
+login limit. Don't port-forward 8420; if the host has a firewall, allow it from
+your LAN only (e.g. `ufw allow from 192.168.1.0/24 to any port 8420`).
+
+Cloudflare caps uploads at 100 MB and responses must start within 100 s, so
+import large worlds and restore big backups from the LAN
+(`http://<host-LAN-IP>:8420`) or with `mcsctl` on the host.
+
+For the game, create one playit.gg tunnel per server pointing at its local
+game port (`127.0.0.1:25565`, `127.0.0.1:25566`, …; run the playit agent with
+host networking if it's in Docker). Put each tunnel's address in
+**Server → Settings → Public address** — it appears on the status page,
+invite confirmations and Discord messages.
+
+### Reverse proxy instead of a tunnel
 
 ```
 mc.example.com {
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:8420
 }
 ```
 
-With a proxy, set `http.listen: 127.0.0.1:8080` and
-`http.trusted_proxies: [127.0.0.1]` so login rate limits see real client IPs.
-
-Set each server's **public address** (Server → Settings) to what players type
-into Minecraft; it appears on the status page and invite confirmations.
+With Caddy/nginx on the same host, set `http.listen: 127.0.0.1:8420` (or keep
+`0.0.0.0` for LAN access) and `http.trusted_proxies: [127.0.0.1]`.
 
 ## Everyday use
 

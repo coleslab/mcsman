@@ -102,7 +102,7 @@ func defaults() Config {
 			DataDir:  "/var/lib/mcsman",
 			LogLevel: "info",
 		},
-		HTTP: HTTP{Listen: "0.0.0.0:8080"},
+		HTTP: HTTP{Listen: "0.0.0.0:8420"},
 		Auth: Auth{
 			AccessTokenTTL:   Duration(15 * time.Minute),
 			RefreshTokenTTL:  Duration(7 * 24 * time.Hour),

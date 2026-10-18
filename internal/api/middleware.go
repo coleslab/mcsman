@@ -76,6 +76,12 @@ func realIP(trusted []*net.IPNet) func(http.Handler) http.Handler {
 			}
 			ip := host
 			if peer := net.ParseIP(host); peer != nil && isTrusted(peer) {
+				// Cloudflare (tunnel or proxy) sets CF-Connecting-IP to the
+				// original client; prefer it when present and valid.
+				if cf := net.ParseIP(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); cf != nil {
+					next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientIPKey, cf.String())))
+					return
+				}
 				// Walk X-Forwarded-For right to left; first untrusted hop is the client.
 				hops := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
 				for i := len(hops) - 1; i >= 0; i-- {
@@ -110,6 +116,15 @@ func parseTrusted(list []string) []*net.IPNet {
 		}
 	}
 	return out
+}
+
+// noStore marks API responses uncacheable so no proxy or CDN (e.g.
+// Cloudflare) ever caches an authenticated response.
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requestLogger logs one line per request. It never logs query strings,

@@ -107,6 +107,7 @@ func (s *Server) router() http.Handler {
 	r.Use(middleware.Recoverer)
 
 	r.Route("/api", func(r chi.Router) {
+		r.Use(noStore)
 		r.Post("/init", s.handleInit)
 
 		r.With(s.loginLimit.middleware).Post("/auth/login", s.handleLogin)

@@ -219,6 +219,48 @@ func TestTrustedProxyXFF(t *testing.T) {
 	}
 }
 
+func TestCFConnectingIP(t *testing.T) {
+	e := newEnv(t, "127.0.0.1")
+	// Exhaust client A's bucket via CF-Connecting-IP; a spoofed XFF must not matter.
+	for i := 0; i < 10; i++ {
+		e.call("POST", "/api/auth/login", "", map[string]string{"username": "x", "password": "wrongpass"},
+			"CF-Connecting-IP", "203.0.113.7", "X-Forwarded-For", "198.51.100."+string(rune('1'+i)))
+	}
+	resp, _ := e.call("POST", "/api/auth/login", "", map[string]string{"username": "x", "password": "wrongpass"},
+		"CF-Connecting-IP", "203.0.113.7")
+	if resp.StatusCode != 429 {
+		t.Errorf("CF client A 11th: %d, want 429", resp.StatusCode)
+	}
+	resp, _ = e.call("POST", "/api/auth/login", "", map[string]string{"username": "x", "password": "wrongpass"},
+		"CF-Connecting-IP", "203.0.113.8")
+	if resp.StatusCode == 429 {
+		t.Error("CF client B limited by client A")
+	}
+}
+
+func TestCFConnectingIPIgnoredFromUntrustedPeer(t *testing.T) {
+	e := newEnv(t) // no trusted proxies
+	for i := 0; i < 10; i++ {
+		e.call("POST", "/api/auth/login", "", map[string]string{"username": "x", "password": "wrongpass"},
+			"CF-Connecting-IP", "203.0.113."+string(rune('1'+i)))
+	}
+	resp, _ := e.call("POST", "/api/auth/login", "", map[string]string{"username": "x", "password": "wrongpass"},
+		"CF-Connecting-IP", "203.0.113.99")
+	if resp.StatusCode != 429 {
+		t.Errorf("spoofed CF-Connecting-IP bypassed rate limit: %d", resp.StatusCode)
+	}
+}
+
+func TestAPIResponsesNotCacheable(t *testing.T) {
+	e := newEnv(t)
+	for _, p := range []string{"/api/status", "/api/auth/me", "/api/nope"} {
+		resp, _ := e.call("GET", p, "", nil)
+		if resp.Header.Get("Cache-Control") != "no-store" {
+			t.Errorf("%s: Cache-Control %q", p, resp.Header.Get("Cache-Control"))
+		}
+	}
+}
+
 func TestUntrustedXFFIgnored(t *testing.T) {
 	e := newEnv(t) // no trusted proxies
 	for i := 0; i < 10; i++ {

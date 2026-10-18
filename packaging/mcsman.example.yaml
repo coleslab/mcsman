@@ -9,7 +9,7 @@ daemon:
   log_level: info                   # debug | info | warn | error
 
 http:
-  listen: 127.0.0.1:8080            # put Caddy/nginx in front for HTTPS
+  listen: 0.0.0.0:8420              # LAN access; expose publicly via a tunnel/proxy
   base_url: https://mc.example.com  # used in invite links
   trusted_proxies: [127.0.0.1]      # honour X-Forwarded-For from these
   tls:
