@@ -1,0 +1,10 @@
+DROP TABLE webhooks;
+DROP TABLE whitelist_queue;
+DROP TABLE world_imports;
+DROP TABLE plugins;
+DROP TABLE backups;
+DROP TABLE server_events;
+DROP TABLE invites;
+DROP TABLE servers;
+DROP TABLE sessions;
+DROP TABLE users;
