@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -20,6 +21,62 @@ type serverView struct {
 	Players     []string        `json:"players"`
 	Metrics     *server.Metrics `json:"metrics"`
 	Busy        string          `json:"busy,omitempty"`
+	Schedule    *scheduleView   `json:"schedule,omitempty"`
+	LastBackup  *lastBackup     `json:"last_backup,omitempty"`
+}
+
+// lastBackup is the outcome of the most recent backup attempt.
+type lastBackup struct {
+	At    int64  `json:"at"`
+	OK    bool   `json:"ok"`
+	Tag   string `json:"tag,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+func (s *Server) lastBackupOf(r *http.Request, serverID string) *lastBackup {
+	e, err := s.db.LatestBackupResult(r.Context(), serverID)
+	if err != nil || e.Detail == nil {
+		return nil
+	}
+	var d struct {
+		OK    *bool  `json:"ok"`
+		Tag   string `json:"tag"`
+		Error string `json:"error"`
+	}
+	if json.Unmarshal([]byte(*e.Detail), &d) != nil || d.OK == nil {
+		return nil
+	}
+	return &lastBackup{At: e.CreatedAt, OK: *d.OK, Tag: d.Tag, Error: d.Error}
+}
+
+// scheduleView shows effective schedules and next run times.
+type scheduleView struct {
+	Backup        string `json:"backup"` // effective spec ("off" if disabled)
+	BackupDefault bool   `json:"backup_is_default"`
+	NextBackupAt  *int64 `json:"next_backup_at"`
+	NextRestartAt *int64 `json:"next_restart_at"`
+	DefaultBackup string `json:"default_backup"`
+	DefaultKeep   int    `json:"default_keep"`
+}
+
+func (s *Server) scheduleOf(srv db.Server) *scheduleView {
+	if s.scheduler == nil {
+		return nil
+	}
+	v := &scheduleView{
+		Backup: s.scheduler.BackupSpec(srv), BackupDefault: srv.BackupSchedule == nil,
+		DefaultBackup: s.scheduler.DefaultBackup, DefaultKeep: s.cfg.Backup.DefaultKeep,
+	}
+	b, r := s.scheduler.Next(srv.ID)
+	if b != nil {
+		u := b.Unix()
+		v.NextBackupAt = &u
+	}
+	if r != nil {
+		u := r.Unix()
+		v.NextRestartAt = &u
+	}
+	return v
 }
 
 // playerServerView is what players may see.
@@ -72,6 +129,8 @@ func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
 	}
 	v := viewOf(inst)
 	if principalFrom(r.Context()).IsAdmin() {
+		v.Schedule = s.scheduleOf(v.Server)
+		v.LastBackup = s.lastBackupOf(r, v.ID)
 		writeJSON(w, http.StatusOK, v)
 		return
 	}
@@ -92,6 +151,9 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, r, err)
 		return
 	}
+	if s.scheduler != nil {
+		s.scheduler.Reload(srv.ID)
+	}
 	writeJSON(w, http.StatusCreated, srv)
 }
 
@@ -108,6 +170,9 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.writeErr(w, r, err)
 		return
+	}
+	if s.scheduler != nil {
+		s.scheduler.Reload(srv.ID)
 	}
 	writeJSON(w, http.StatusOK, srv)
 }
@@ -132,6 +197,9 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	if err := s.servers.Delete(r.Context(), srv.ID); err != nil {
 		s.writeErr(w, r, err)
 		return
+	}
+	if s.scheduler != nil {
+		s.scheduler.Remove(srv.ID)
 	}
 	s.log.Info("server deleted", "server", srv.Name, "by", principalFrom(r.Context()).User.Username)
 	w.WriteHeader(http.StatusNoContent)

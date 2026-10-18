@@ -211,9 +211,13 @@ func (m *Manager) archive(ctx context.Context, srv db.Server, dir string, worlds
 	return b, nil
 }
 
-// prune deletes the oldest backups beyond the keep limit.
+// prune deletes the oldest backups beyond the keep limit (the server's
+// own setting, else the daemon default).
 func (m *Manager) prune(ctx context.Context, srv db.Server, dir string) error {
 	keep := m.Keep
+	if srv.BackupKeep != nil {
+		keep = *srv.BackupKeep
+	}
 	if keep < 1 {
 		keep = 24
 	}

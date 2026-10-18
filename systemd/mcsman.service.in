@@ -10,13 +10,17 @@ EnvironmentFile=/etc/mcsman/mcsman.env
 ExecStart=/usr/local/bin/mcsman --config /etc/mcsman/mcsman.yaml
 Restart=on-failure
 RestartSec=5s
+# Only the daemon gets SIGTERM; it stops servers gracefully itself.
+KillMode=mixed
+TimeoutStopSec=120
+StateDirectory=mcsman
+StateDirectoryMode=0750
 RuntimeDirectory=mcsman
 RuntimeDirectoryMode=0750
 
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/mcsman /run/mcsman
 PrivateTmp=true
 
 [Install]

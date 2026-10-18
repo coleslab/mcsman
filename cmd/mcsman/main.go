@@ -19,6 +19,7 @@ import (
 	"mcsman/internal/auth"
 	"mcsman/internal/backup"
 	"mcsman/internal/config"
+	"mcsman/internal/cronspec"
 	"mcsman/internal/crypto"
 	"mcsman/internal/db"
 	"mcsman/internal/discord"
@@ -26,6 +27,7 @@ import (
 	"mcsman/internal/java"
 	"mcsman/internal/metrics"
 	"mcsman/internal/plugin"
+	"mcsman/internal/scheduler"
 	"mcsman/internal/server"
 	"mcsman/internal/version"
 	"mcsman/internal/whitelist"
@@ -115,11 +117,19 @@ func run(configPath string) error {
 		return fmt.Errorf("seed webhooks: %w", err)
 	}
 	worlds := &world.Manager{DB: database, Servers: servers, Backups: backups, Log: log}
+	if err := cronspec.Validate(cfg.Backup.DefaultInterval); err != nil {
+		return fmt.Errorf("backup.default_interval: %w", err)
+	}
+	sched := &scheduler.Scheduler{
+		Servers: servers, Backups: backups, DB: database, Log: log,
+		DefaultBackup: cfg.Backup.DefaultInterval,
+	}
 
 	apiSrv := api.New(api.Deps{
 		Config: cfg, DB: database, Auth: authSvc, Servers: servers, Backups: backups,
 		Versions: paper, Bus: bus, Invites: invites, Whitelist: wl,
-		Plugins: plugins, Upgrader: upgrader, Discord: notifier, Worlds: worlds, Log: log, Web: web.Handler(),
+		Plugins: plugins, Upgrader: upgrader, Discord: notifier, Worlds: worlds, Scheduler: sched,
+		Log: log, Web: web.Handler(),
 	})
 
 	httpSrv := &http.Server{
@@ -161,6 +171,8 @@ func run(configPath string) error {
 	go (&metrics.Collector{Servers: servers, Bus: bus, Log: log}).Run(ctx)
 	go wl.Run(ctx)
 	go notifier.Run(ctx)
+	sched.Start()
+	go autostart(servers, log)
 
 	select {
 	case <-ctx.Done():
@@ -173,6 +185,7 @@ func run(configPath string) error {
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
+	sched.Stop(shutCtx)
 	httpSrv.Shutdown(shutCtx)
 	sockSrv.Shutdown(shutCtx)
 	servers.Shutdown(shutCtx)
@@ -196,6 +209,21 @@ func housekeeping(ctx context.Context, a *api.Server, d *db.DB, log *slog.Logger
 					log.Warn("prune sessions", "err", err)
 				}
 			}
+		}
+	}
+}
+
+// autostart starts servers flagged to come up with the daemon, one at a
+// time so first-run Java downloads don't run in parallel.
+func autostart(servers *server.Manager, log *slog.Logger) {
+	for _, inst := range servers.All() {
+		srv := inst.Server()
+		if !srv.Autostart {
+			continue
+		}
+		log.Info("autostarting server", "server", srv.Name)
+		if err := inst.Start(); err != nil {
+			log.Error("autostart failed", "server", srv.Name, "err", err)
 		}
 	}
 }

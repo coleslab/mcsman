@@ -175,3 +175,35 @@ func TestWebhookServerScopeAPI(t *testing.T) {
 		t.Errorf("clear scope: %d %v", resp.StatusCode, out["server_ids"])
 	}
 }
+
+func TestServerViewScheduleAndLastBackup(t *testing.T) {
+	e := newEnv(t)
+	e.initAdmin()
+	admin, _ := e.login("admin", "password123")
+	srv := e.createServer(t, admin, "survival", nil)
+	id := srv["id"].(string)
+
+	resp, out := e.call("PATCH", "/api/servers/"+id, admin, map[string]any{
+		"backup_schedule": "6h", "backup_keep": 5, "restart_schedule": "0 5 * * *", "autostart": true,
+		"connection_address": "survival.example.net",
+	})
+	if resp.StatusCode != 200 || out["backup_schedule"] != "6h" || out["backup_keep"].(float64) != 5 || out["autostart"] != true {
+		t.Fatalf("patch: %d %v", resp.StatusCode, out)
+	}
+	if resp, _ := e.call("PATCH", "/api/servers/"+id, admin, map[string]any{"restart_schedule": "sometimes"}); resp.StatusCode != 400 {
+		t.Errorf("bad schedule: %d", resp.StatusCode)
+	}
+	// "" resets to default, 0 resets keep.
+	_, out = e.call("PATCH", "/api/servers/"+id, admin, map[string]any{"backup_schedule": "", "backup_keep": 0})
+	if out["backup_schedule"] != nil || out["backup_keep"] != nil {
+		t.Errorf("reset: %v %v", out["backup_schedule"], out["backup_keep"])
+	}
+
+	// A failed backup (no world yet) shows up as last_backup.ok=false.
+	e.call("POST", "/api/servers/"+id+"/backups?wait=true", admin, nil)
+	_, view := e.call("GET", "/api/servers/"+id, admin, nil)
+	lb, ok := view["last_backup"].(map[string]any)
+	if !ok || lb["ok"] != false || lb["error"] == "" {
+		t.Errorf("last_backup %v", view["last_backup"])
+	}
+}

@@ -40,6 +40,19 @@ export interface Server {
 	created_at?: number;
 	pid?: number;
 	busy?: string;
+	autostart?: boolean;
+	backup_schedule?: string | null;
+	backup_keep?: number | null;
+	restart_schedule?: string | null;
+	schedule?: {
+		backup: string;
+		backup_is_default: boolean;
+		next_backup_at: number | null;
+		next_restart_at: number | null;
+		default_backup: string;
+		default_keep: number;
+	};
+	last_backup?: { at: number; ok: boolean; tag?: string; error?: string };
 }
 
 export interface Backup {
@@ -304,6 +317,8 @@ export const api = {
 	servers: () => request<Server[]>('GET', '/api/servers'),
 	server: (id: string) => request<Server>('GET', `/api/servers/${id}`),
 	createServer: (body: Record<string, unknown>) => request<Server>('POST', '/api/servers', body),
+	updateServer: (id: string, body: Record<string, unknown>) => request<Server>('PATCH', `/api/servers/${id}`, body),
+	deleteServer: (id: string, confirm: string) => request('DELETE', `/api/servers/${id}`, { confirm }),
 	start: (id: string) => request<Server>('POST', `/api/servers/${id}/start`),
 	stop: (id: string, delay_seconds = 0) =>
 		request<Server>('POST', `/api/servers/${id}/stop`, { delay_seconds }),

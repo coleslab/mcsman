@@ -58,6 +58,8 @@ Commands:
   user role <username> admin|player
   user remove <username>
 
+  completion bash|zsh                    print a shell completion script
+
 Environment:
   MCSCTL_SOCKET   socket path (default /run/mcsman/mcsman.sock)
 `
@@ -123,6 +125,14 @@ func dispatch(c *client, args []string) error {
 			return errors.New("missing world subcommand")
 		}
 		return dispatchWorld(c, args[1], args[2:])
+	case "completion":
+		if len(args) < 2 {
+			return cmdCompletion("")
+		}
+		return cmdCompletion(args[1])
+	case "__servers":
+		printServerNames(c)
+		return nil
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

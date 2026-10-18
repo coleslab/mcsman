@@ -1,0 +1,40 @@
+# mcsman configuration. This file must be mode 0600 and owned by the user
+# mcsman runs as. Secrets go in the environment, not here:
+#   MCSMAN_JWT_SECRET        (required, 32+ random characters)
+#   MCSMAN_DISCORD_WEBHOOK_0 (optional; one per entry under discord.webhooks)
+
+daemon:
+  socket: /run/mcsman/mcsman.sock   # Unix socket for mcsctl
+  data_dir: /var/lib/mcsman         # servers, backups, JARs, Java runtimes
+  log_level: info                   # debug | info | warn | error
+
+http:
+  listen: 127.0.0.1:8080            # put Caddy/nginx in front for HTTPS
+  base_url: https://mc.example.com  # used in invite links
+  trusted_proxies: [127.0.0.1]      # honour X-Forwarded-For from these
+  tls:
+    cert: ""                        # or terminate TLS here directly
+    key: ""
+
+auth:
+  jwt_secret: ""                    # set MCSMAN_JWT_SECRET instead
+  access_token_ttl: 15m
+  refresh_token_ttl: 7d
+  invite_default_ttl: 48h
+
+backup:
+  default_keep: 24                  # per server; overridable in the UI
+  default_interval: 1h              # duration (6h) or cron ("0 4 * * *")
+
+discord:
+  # Webhooks here are copied into the database on first start; after that,
+  # manage them in the web UI (Settings).
+  webhooks: []
+  #  - name: server-status
+  #    url: ""                      # MCSMAN_DISCORD_WEBHOOK_0
+  #    servers: []                  # names; empty = all servers
+  #    events: { server_online: true, server_offline: true, server_crash: true,
+  #              restart_warning: true, backup_failed: true, upgrade_complete: true }
+
+java:
+  cache_dir: /var/lib/mcsman/java

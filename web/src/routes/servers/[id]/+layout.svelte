@@ -21,7 +21,8 @@
 		{ href: `${base}/plugins`, label: 'Plugins' },
 		{ href: `${base}/backups`, label: 'Backups' },
 		{ href: `${base}/worlds`, label: 'World' },
-		{ href: `${base}/version`, label: 'Version' }
+		{ href: `${base}/version`, label: 'Version' },
+		{ href: `${base}/settings`, label: 'Settings' }
 	]);
 
 	async function act(name: string, fn: () => Promise<unknown>) {

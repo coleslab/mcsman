@@ -1,0 +1,57 @@
+# Maintainer: mcsman
+# Build from this checkout:   cd packaging/arch && makepkg -si
+# Build uncommitted changes:  MCSMAN_SRC=$(realpath ../..) makepkg -si
+pkgname=mcsman
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Self-hosted Paper Minecraft server manager with web UI and CLI'
+arch=('x86_64')
+license=('LicenseRef-unknown')
+makedepends=('go' 'nodejs' 'npm' 'git')
+backup=('etc/mcsman/mcsman.yaml' 'etc/mcsman/mcsman.env')
+install=mcsman.install
+options=('!debug')
+
+if [[ -n $MCSMAN_SRC ]]; then
+  source=()
+else
+  source=("mcsman::git+file://$(realpath "$startdir/../..")")
+fi
+sha256sums=('SKIP')
+[[ -n $MCSMAN_SRC ]] && sha256sums=()
+
+prepare() {
+  if [[ -n $MCSMAN_SRC ]]; then
+    rm -rf "$srcdir/mcsman"
+    mkdir -p "$srcdir/mcsman"
+    tar -C "$MCSMAN_SRC" --exclude=./bin --exclude=./dev-data --exclude=./web/node_modules \
+      --exclude=./web/.svelte-kit --exclude=./packaging/arch/src --exclude=./packaging/arch/pkg \
+      -cf - . | tar -C "$srcdir/mcsman" -xf -
+  fi
+}
+
+build() {
+  cd "$srcdir/mcsman"
+  export GOFLAGS='-buildmode=default -mod=readonly -modcacherw'
+  export GOPATH="$srcdir/gopath"
+  make build
+}
+
+check() {
+  cd "$srcdir/mcsman"
+  export GOPATH="$srcdir/gopath"
+  go test ./internal/config ./internal/crypto ./internal/fsutil ./internal/cronspec ./internal/world
+}
+
+package() {
+  cd "$srcdir/mcsman"
+  install -Dm755 bin/mcsman "$pkgdir/usr/bin/mcsman"
+  install -Dm755 bin/mcsctl "$pkgdir/usr/bin/mcsctl"
+  install -Dm644 systemd/mcsman@.service "$pkgdir/usr/lib/systemd/system/mcsman@.service"
+  install -Dm600 packaging/mcsman.example.yaml "$pkgdir/etc/mcsman/mcsman.yaml"
+  install -Dm600 packaging/mcsman.example.env "$pkgdir/etc/mcsman/mcsman.env"
+  install -dm755 "$pkgdir/usr/share/bash-completion/completions" "$pkgdir/usr/share/zsh/site-functions"
+  bin/mcsctl completion bash > "$pkgdir/usr/share/bash-completion/completions/mcsctl"
+  bin/mcsctl completion zsh > "$pkgdir/usr/share/zsh/site-functions/_mcsctl"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/mcsman/README.md"
+}

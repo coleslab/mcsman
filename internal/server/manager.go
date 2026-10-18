@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"mcsman/internal/cronspec"
 	"mcsman/internal/crypto"
 	"mcsman/internal/db"
 	"mcsman/internal/events"
@@ -159,6 +160,7 @@ type CreateParams struct {
 	MaxMemoryMB       int     `json:"max_memory_mb"`
 	AutoRestart       *bool   `json:"auto_restart"`
 	ConnectionAddress *string `json:"connection_address"`
+	Autostart         bool    `json:"autostart"`
 	AcceptEULA        bool    `json:"accept_eula"`
 }
 
@@ -227,6 +229,7 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (*db.Server, error
 		MaxMemoryMB:       p.MaxMemoryMB,
 		AutoRestart:       p.AutoRestart == nil || *p.AutoRestart,
 		ConnectionAddress: emptyToNil(p.ConnectionAddress),
+		Autostart:         p.Autostart,
 	}
 
 	if err := m.checkNameAndPorts(s); err != nil {
@@ -324,6 +327,11 @@ type UpdateParams struct {
 	MaxMemoryMB       *int    `json:"max_memory_mb"`
 	AutoRestart       *bool   `json:"auto_restart"`
 	ConnectionAddress *string `json:"connection_address"`
+	Autostart         *bool   `json:"autostart"`
+	// Schedules: "" resets to the daemon default, "off" disables.
+	BackupSchedule  *string `json:"backup_schedule"`
+	BackupKeep      *int    `json:"backup_keep"` // 0 resets to default
+	RestartSchedule *string `json:"restart_schedule"`
 }
 
 // Update applies p. Changes to ports, memory and versions take effect on the
@@ -371,6 +379,31 @@ func (m *Manager) Update(ctx context.Context, id string, p UpdateParams) (*db.Se
 	}
 	if p.ConnectionAddress != nil {
 		s.ConnectionAddress = emptyToNil(p.ConnectionAddress)
+	}
+	if p.Autostart != nil {
+		s.Autostart = *p.Autostart
+	}
+	if p.BackupSchedule != nil {
+		if err := cronspec.Validate(*p.BackupSchedule); err != nil {
+			return nil, fmt.Errorf("%w: backup schedule: %v", ErrInvalid, err)
+		}
+		s.BackupSchedule = emptyToNil(p.BackupSchedule)
+	}
+	if p.RestartSchedule != nil {
+		if err := cronspec.Validate(*p.RestartSchedule); err != nil {
+			return nil, fmt.Errorf("%w: restart schedule: %v", ErrInvalid, err)
+		}
+		s.RestartSchedule = emptyToNil(p.RestartSchedule)
+	}
+	if p.BackupKeep != nil {
+		switch k := *p.BackupKeep; {
+		case k == 0:
+			s.BackupKeep = nil
+		case k < 1 || k > 1000:
+			return nil, fmt.Errorf("%w: backup_keep must be 1-1000", ErrInvalid)
+		default:
+			s.BackupKeep = &k
+		}
 	}
 	if err := validateCommon(s.Port, s.RCONPort, s.MaxMemoryMB); err != nil {
 		return nil, err

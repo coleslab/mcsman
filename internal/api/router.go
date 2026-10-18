@@ -17,6 +17,7 @@ import (
 	"mcsman/internal/discord"
 	"mcsman/internal/events"
 	"mcsman/internal/plugin"
+	"mcsman/internal/scheduler"
 	"mcsman/internal/server"
 	"mcsman/internal/version"
 	"mcsman/internal/whitelist"
@@ -38,6 +39,7 @@ type Deps struct {
 	Upgrader  *version.Upgrader
 	Discord   *discord.Notifier
 	Worlds    *world.Manager
+	Scheduler *scheduler.Scheduler
 	Log       *slog.Logger
 	// Web serves the embedded UI for non-API paths; nil disables it.
 	Web http.Handler
@@ -58,6 +60,7 @@ type Server struct {
 	upgrader  *version.Upgrader
 	discord   *discord.Notifier
 	worlds    *world.Manager
+	scheduler *scheduler.Scheduler
 	log       *slog.Logger
 	web       http.Handler
 	tickets   *ticketStore
@@ -71,7 +74,8 @@ func New(d Deps) *Server {
 	return &Server{
 		cfg: d.Config, db: d.DB, auth: d.Auth, servers: d.Servers, backups: d.Backups,
 		versions: d.Versions, bus: d.Bus, invites: d.Invites, whitelist: d.Whitelist,
-		plugins: d.Plugins, upgrader: d.Upgrader, discord: d.Discord, worlds: d.Worlds, log: d.Log, web: d.Web,
+		plugins: d.Plugins, upgrader: d.Upgrader, discord: d.Discord, worlds: d.Worlds,
+		scheduler: d.Scheduler, log: d.Log, web: d.Web,
 		tickets:      newTicketStore(),
 		loginLimit:   newRateLimiter(10),
 		refreshLimit: newRateLimiter(20),

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ago, until } from '#lib/format.ts';
 	import { useServer } from '#lib/serverContext.svelte.ts';
 
 	const ctx = useServer();
@@ -49,6 +50,12 @@
 		<p class="muted note">Live metrics appear while the server is running (updated every 10 seconds).</p>
 	{/if}
 
+	{#if s.last_backup && !s.last_backup.ok}
+		<div class="alert error">
+			<strong>Last backup failed</strong> ({ago(s.last_backup.at)}): {s.last_backup.error}
+		</div>
+	{/if}
+
 	<section class="card stack">
 		<h2>Connect</h2>
 		{#if s.connection_address}
@@ -74,6 +81,18 @@
 			<dt>Port</dt><dd>{s.port} <span class="muted">(RCON {s.rcon_port})</span></dd>
 			<dt>Memory</dt><dd>{s.max_memory_mb} MB</dd>
 			<dt>Auto-restart</dt><dd>{s.auto_restart ? 'On' : 'Off'}</dd>
+			<dt>Backups</dt>
+			<dd>
+				{#if s.schedule?.next_backup_at}
+					next {until(s.schedule.next_backup_at)}
+				{:else}
+					not scheduled
+				{/if}
+				{#if s.last_backup?.ok}<span class="muted"> · last {ago(s.last_backup.at)}</span>{/if}
+			</dd>
+			{#if s.schedule?.next_restart_at}
+				<dt>Restart</dt><dd>next {until(s.schedule.next_restart_at)}</dd>
+			{/if}
 			<dt>Folder</dt><dd class="mono path">{s.directory}</dd>
 		</dl>
 	</section>

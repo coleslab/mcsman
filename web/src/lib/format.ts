@@ -16,6 +16,15 @@ export function ago(unix: number): string {
 	return `${Math.floor(s / 86400)}d ago`;
 }
 
+/** "in 3h", "in 12m" for a future unix time. */
+export function until(unix: number): string {
+	const s = Math.max(0, Math.floor(unix - Date.now() / 1000));
+	if (s < 60) return 'in under a minute';
+	if (s < 3600) return `in ${Math.floor(s / 60)}m`;
+	if (s < 86400) return `in ${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+	return `in ${Math.floor(s / 86400)}d`;
+}
+
 export function dateTime(unix: number): string {
 	return new Date(unix * 1000).toLocaleString(undefined, {
 		month: 'short',

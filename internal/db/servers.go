@@ -27,19 +27,30 @@ type Server struct {
 	CreatedAt         int64   `json:"created_at"`
 	Status            string  `json:"status"`
 	ConnectionAddress *string `json:"connection_address"`
+	BackupSchedule    *string `json:"backup_schedule"`  // nil = daemon default; "off" = disabled
+	BackupKeep        *int    `json:"backup_keep"`      // nil = daemon default
+	RestartSchedule   *string `json:"restart_schedule"` // nil/"off" = none
+	Autostart         bool    `json:"autostart"`        // start when the daemon starts
 }
 
 const serverCols = `id, name, directory, mc_version, java_version, port, rcon_port, rcon_password,
-	max_memory_mb, auto_restart, created_at, status, connection_address`
+	max_memory_mb, auto_restart, created_at, status, connection_address,
+	backup_schedule, backup_keep, restart_schedule, autostart`
 
 func scanServer(row interface{ Scan(...any) error }) (*Server, error) {
 	var s Server
-	var addr sql.NullString
+	var addr, bsched, rsched sql.NullString
+	var keep sql.NullInt64
 	if err := row.Scan(&s.ID, &s.Name, &s.Directory, &s.MCVersion, &s.JavaVersion, &s.Port, &s.RCONPort,
-		&s.RCONPasswordEnc, &s.MaxMemoryMB, &s.AutoRestart, &s.CreatedAt, &s.Status, &addr); err != nil {
+		&s.RCONPasswordEnc, &s.MaxMemoryMB, &s.AutoRestart, &s.CreatedAt, &s.Status, &addr,
+		&bsched, &keep, &rsched, &s.Autostart); err != nil {
 		return nil, notFound(err)
 	}
-	s.ConnectionAddress = strPtr(addr)
+	s.ConnectionAddress, s.BackupSchedule, s.RestartSchedule = strPtr(addr), strPtr(bsched), strPtr(rsched)
+	if keep.Valid {
+		k := int(keep.Int64)
+		s.BackupKeep = &k
+	}
 	return &s, nil
 }
 
@@ -53,9 +64,10 @@ func (d *DB) CreateServer(ctx context.Context, s *Server) error {
 	if s.Status == "" {
 		s.Status = StatusStopped
 	}
-	_, err := d.ExecContext(ctx, `INSERT INTO servers (`+serverCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := d.ExecContext(ctx, `INSERT INTO servers (`+serverCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		s.ID, s.Name, s.Directory, s.MCVersion, s.JavaVersion, s.Port, s.RCONPort, s.RCONPasswordEnc,
-		s.MaxMemoryMB, s.AutoRestart, s.CreatedAt, s.Status, nullStr(s.ConnectionAddress))
+		s.MaxMemoryMB, s.AutoRestart, s.CreatedAt, s.Status, nullStr(s.ConnectionAddress),
+		nullStr(s.BackupSchedule), nullInt(s.BackupKeep), nullStr(s.RestartSchedule), s.Autostart)
 	return err
 }
 
@@ -88,9 +100,11 @@ func (d *DB) ListServers(ctx context.Context) ([]*Server, error) {
 func (d *DB) UpdateServer(ctx context.Context, s *Server) error {
 	return execOne(d.ExecContext(ctx,
 		`UPDATE servers SET name = ?, mc_version = ?, java_version = ?, port = ?, rcon_port = ?,
-		 max_memory_mb = ?, auto_restart = ?, connection_address = ? WHERE id = ?`,
+		 max_memory_mb = ?, auto_restart = ?, connection_address = ?,
+		 backup_schedule = ?, backup_keep = ?, restart_schedule = ?, autostart = ? WHERE id = ?`,
 		s.Name, s.MCVersion, s.JavaVersion, s.Port, s.RCONPort, s.MaxMemoryMB, s.AutoRestart,
-		nullStr(s.ConnectionAddress), s.ID))
+		nullStr(s.ConnectionAddress), nullStr(s.BackupSchedule), nullInt(s.BackupKeep),
+		nullStr(s.RestartSchedule), s.Autostart, s.ID))
 }
 
 func (d *DB) SetServerStatus(ctx context.Context, id, status string) error {
@@ -136,4 +150,21 @@ func (d *DB) ListServerEvents(ctx context.Context, serverID string, limit int) (
 		out = append(out, &e)
 	}
 	return out, rows.Err()
+}
+
+// LatestBackupResult returns the newest backup attempt event (success or
+// failure; restore events are excluded), or ErrNotFound.
+func (d *DB) LatestBackupResult(ctx context.Context, serverID string) (*ServerEvent, error) {
+	var e ServerEvent
+	var det sql.NullString
+	err := d.QueryRowContext(ctx,
+		`SELECT id, server_id, type, detail, created_at FROM server_events
+		 WHERE server_id = ? AND type = 'backup' AND json_extract(detail, '$.ok') IS NOT NULL
+		 ORDER BY created_at DESC, rowid DESC LIMIT 1`, serverID).
+		Scan(&e.ID, &e.ServerID, &e.Type, &det, &e.CreatedAt)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	e.Detail = strPtr(det)
+	return &e, nil
 }

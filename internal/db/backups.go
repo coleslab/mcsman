@@ -65,3 +65,21 @@ func (d *DB) ListBackups(ctx context.Context, serverID string) ([]*Backup, error
 func (d *DB) DeleteBackup(ctx context.Context, id string) error {
 	return execOne(d.ExecContext(ctx, `DELETE FROM backups WHERE id = ?`, id))
 }
+
+// ChangedSinceLastBackup reports whether a server has stopped or crashed
+// (i.e. ran, so its world may have changed) since its newest backup, or has
+// never been backed up.
+func (d *DB) ChangedSinceLastBackup(ctx context.Context, serverID string) (bool, error) {
+	var last sql.NullInt64
+	if err := d.QueryRowContext(ctx, `SELECT MAX(created_at) FROM backups WHERE server_id = ?`, serverID).Scan(&last); err != nil {
+		return false, err
+	}
+	if !last.Valid {
+		return true, nil
+	}
+	var n int
+	err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM server_events WHERE server_id = ? AND type IN ('stop', 'crash') AND created_at > ?`,
+		serverID, last.Int64).Scan(&n)
+	return n > 0, err
+}

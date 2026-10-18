@@ -46,5 +46,15 @@ see "Decisions" below.
   deleting a scoped webhook's last server makes it inactive rather than global).
 - Large downloads (backups, world export) accept `?ticket=` so browsers stream to disk.
 
+## Scheduling & packaging
+- Schedules (`internal/cronspec`): Go duration ("6h", min 5m), 5-field cron, or "off".
+  Per-server `backup_schedule`/`backup_keep`/`restart_schedule` override config defaults
+  (NULL = default). The scheduler reloads a server on create/update/delete.
+- Stopped servers are auto-backed-up only if they stopped/crashed since the last backup.
+- `autostart` servers start sequentially after the daemon boots.
+- Packaging: `packaging/arch/PKGBUILD` (`MCSMAN_SRC=$(realpath ../..) makepkg` for
+  uncommitted trees) installs `mcsman@.service` (run as `mcsman@<user>`); `KillMode=mixed`
+  is required so systemd doesn't SIGTERM Java before the graceful RCON stop.
+
 ## Workflow
 Phase-by-phase; after each phase demo + wait for user confirmation, then one commit.

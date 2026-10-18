@@ -1,0 +1,39 @@
+# mcsman as a chosen user: systemctl enable --now mcsman@<user>
+# The daemon and every Minecraft server run as that user. mcsctl users must
+# be in that user's primary group (the socket is 0660).
+[Unit]
+Description=mcsman Minecraft server manager (as %i)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=%i
+EnvironmentFile=/etc/mcsman/mcsman.env
+ExecStart=/usr/bin/mcsman --config /etc/mcsman/mcsman.yaml
+Restart=on-failure
+RestartSec=5s
+
+# Only the daemon gets SIGTERM; it stops each server gracefully (RCON stop,
+# then SIGTERM/SIGKILL itself). The default control-group mode would signal
+# the Java processes directly and skip the graceful shutdown.
+KillMode=mixed
+TimeoutStopSec=120
+
+StateDirectory=mcsman
+StateDirectoryMode=0750
+RuntimeDirectory=mcsman
+RuntimeDirectoryMode=0750
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
