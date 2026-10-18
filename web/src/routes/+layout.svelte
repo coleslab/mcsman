@@ -8,13 +8,18 @@
 
 	let { children } = $props();
 
-	const PUBLIC = ['/login'];
-	const isPublic = $derived(PUBLIC.some((p) => page.url.pathname.startsWith(p)));
+	// Pages anyone can open without signing in ("/" redirects to /status).
+	const PUBLIC = ['/login', '/status', '/join'];
+	// Pages that render without the app header.
+	const BARE = ['/login', '/join'];
+	const path = $derived(page.url.pathname);
+	const isPublic = $derived(path === '/' || PUBLIC.some((p) => path.startsWith(p)));
+	const isBare = $derived(BARE.some((p) => path.startsWith(p)));
 
 	setUnauthorizedHandler(() => {
 		session.user = null;
 		live.stop();
-		goto(`/login?next=${encodeURIComponent(page.url.pathname)}`);
+		if (!isPublic) goto(`/login?next=${encodeURIComponent(path)}`);
 	});
 
 	session.load();
@@ -23,32 +28,53 @@
 		if (!session.loaded) return;
 		if (session.user) {
 			live.start();
-		} else if (!isPublic) {
+		} else {
 			live.stop();
-			goto(`/login?next=${encodeURIComponent(page.url.pathname)}`, { replaceState: true });
+			if (!isPublic) goto(`/login?next=${encodeURIComponent(path)}`, { replaceState: true });
 		}
 	});
+
+	const nav = $derived(
+		session.isAdmin
+			? [
+					{ href: '/servers', label: 'Servers' },
+					{ href: '/users', label: 'Users' },
+					{ href: '/status', label: 'Status' }
+				]
+			: [{ href: '/status', label: 'Status' }]
+	);
 
 	async function logout() {
 		live.stop();
 		await session.logout();
-		goto('/login');
+		goto('/status');
 	}
 </script>
 
-{#if session.user && !isPublic}
+{#if !isBare && session.loaded}
 	<header>
 		<div class="container bar">
-			<a href="/servers" class="brand">
+			<a href={session.isAdmin ? '/servers' : '/status'} class="brand">
 				<img src="/favicon.svg" alt="" width="24" height="24" />
 				<span>mcsman</span>
 			</a>
-			<span class="spacer"></span>
-			{#if !live.connected}
-				<span class="offline" title="Live updates disconnected; reconnecting…">offline</span>
+			{#if session.user}
+				<nav>
+					{#each nav as n (n.href)}
+						<a href={n.href} class:active={path.startsWith(n.href)}>{n.label}</a>
+					{/each}
+				</nav>
 			{/if}
-			<span class="muted user">{session.user.username}</span>
-			<button class="ghost small" onclick={logout}>Log out</button>
+			<span class="spacer"></span>
+			{#if session.user}
+				{#if !live.connected}
+					<span class="offline" title="Live updates disconnected; reconnecting…">offline</span>
+				{/if}
+				<a href="/account" class="user" class:active={path.startsWith('/account')}>{session.user.username}</a>
+				<button class="ghost small" onclick={logout}>Log out</button>
+			{:else}
+				<a class="btn small-btn" href="/login">Log in</a>
+			{/if}
 		</div>
 	</header>
 {/if}
@@ -81,8 +107,32 @@
 		text-decoration: none;
 		font-size: 1.05rem;
 	}
+	nav {
+		display: flex;
+		gap: 2px;
+		margin-left: 8px;
+	}
+	nav a,
 	.user {
-		font-size: 0.875rem;
+		padding: 6px 10px;
+		border-radius: var(--radius-sm);
+		text-decoration: none;
+		color: var(--text-2);
+		font-size: 0.9rem;
+		font-weight: 550;
+	}
+	nav a:hover,
+	.user:hover {
+		color: var(--text);
+	}
+	nav a.active,
+	.user.active {
+		color: var(--text);
+		background: var(--surface-2);
+	}
+	.small-btn {
+		min-height: 34px;
+		font-size: 0.9rem;
 	}
 	.offline {
 		font-size: 0.75rem;
@@ -91,9 +141,18 @@
 		background: var(--warn-soft);
 		color: var(--warn);
 	}
-	@media (max-width: 420px) {
-		.user {
+	@media (max-width: 560px) {
+		.brand span {
 			display: none;
+		}
+		nav {
+			margin-left: 0;
+		}
+		.user {
+			max-width: 90px;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
 		}
 	}
 </style>

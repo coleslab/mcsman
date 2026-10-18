@@ -17,46 +17,53 @@ import (
 	"mcsman/internal/events"
 	"mcsman/internal/server"
 	"mcsman/internal/version"
+	"mcsman/internal/whitelist"
 )
 
 // Deps are the API's collaborators.
 type Deps struct {
-	Config   *config.Config
-	DB       *db.DB
-	Auth     *auth.Service
-	Servers  *server.Manager
-	Backups  *backup.Manager
-	Versions *version.Client
-	Bus      *events.Bus
-	Log      *slog.Logger
+	Config    *config.Config
+	DB        *db.DB
+	Auth      *auth.Service
+	Servers   *server.Manager
+	Backups   *backup.Manager
+	Versions  *version.Client
+	Bus       *events.Bus
+	Invites   *auth.Invites
+	Whitelist *whitelist.Service
+	Log       *slog.Logger
 	// Web serves the embedded UI for non-API paths; nil disables it.
 	Web http.Handler
 }
 
 // Server holds the API's dependencies.
 type Server struct {
-	cfg      *config.Config
-	db       *db.DB
-	auth     *auth.Service
-	servers  *server.Manager
-	backups  *backup.Manager
-	versions *version.Client
-	bus      *events.Bus
-	log      *slog.Logger
-	web      http.Handler
-	tickets  *ticketStore
+	cfg       *config.Config
+	db        *db.DB
+	auth      *auth.Service
+	servers   *server.Manager
+	backups   *backup.Manager
+	versions  *version.Client
+	bus       *events.Bus
+	invites   *auth.Invites
+	whitelist *whitelist.Service
+	log       *slog.Logger
+	web       http.Handler
+	tickets   *ticketStore
 
 	loginLimit   *rateLimiter
 	refreshLimit *rateLimiter
+	redeemLimit  *rateLimiter
 }
 
 func New(d Deps) *Server {
 	return &Server{
 		cfg: d.Config, db: d.DB, auth: d.Auth, servers: d.Servers, backups: d.Backups,
-		versions: d.Versions, bus: d.Bus, log: d.Log, web: d.Web,
+		versions: d.Versions, bus: d.Bus, invites: d.Invites, whitelist: d.Whitelist, log: d.Log, web: d.Web,
 		tickets:      newTicketStore(),
 		loginLimit:   newRateLimiter(10),
 		refreshLimit: newRateLimiter(20),
+		redeemLimit:  newRateLimiter(5),
 	}
 }
 
@@ -65,6 +72,7 @@ func New(d Deps) *Server {
 func (s *Server) Sweep() {
 	s.loginLimit.sweep()
 	s.refreshLimit.sweep()
+	s.redeemLimit.sweep()
 	s.tickets.sweep()
 }
 
@@ -87,6 +95,9 @@ func (s *Server) router() http.Handler {
 
 		r.With(s.loginLimit.middleware).Post("/auth/login", s.handleLogin)
 		r.With(s.refreshLimit.middleware).Post("/auth/refresh", s.handleRefresh)
+		r.With(s.redeemLimit.middleware).Get("/invites/{token}", s.handleInviteLookup)
+		r.With(s.redeemLimit.middleware).Post("/invites/{token}/redeem", s.handleRedeem)
+		r.Get("/status", s.handleStatus)
 
 		// The console WebSocket authenticates with a ticket in the query
 		// string, since browsers cannot set headers on WebSocket requests.
@@ -99,6 +110,7 @@ func (s *Server) router() http.Handler {
 			r.Post("/auth/logout", s.handleLogout)
 			r.Get("/auth/me", s.handleMe)
 			r.Post("/ws-ticket", s.handleWSTicket)
+			r.Post("/users/me/password", s.handleChangePassword)
 
 			r.Get("/servers/{id}", s.handleGetServer)
 			r.Get("/servers/{id}/players", s.handlePlayers)
@@ -107,6 +119,13 @@ func (s *Server) router() http.Handler {
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireAdmin)
+				r.Post("/invites", s.handleCreateInvite)
+				r.Get("/invites", s.handleListInvites)
+				r.Delete("/invites/{id}", s.handleRevokeInvite)
+				r.Get("/users", s.handleListUsers)
+				r.Patch("/users/{id}", s.handleUpdateUser)
+				r.Delete("/users/{id}", s.handleDeleteUser)
+
 				r.Get("/servers", s.handleListServers)
 				r.Post("/servers", s.handleCreateServer)
 				r.Patch("/servers/{id}", s.handleUpdateServer)

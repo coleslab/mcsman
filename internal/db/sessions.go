@@ -67,3 +67,10 @@ func (d *DB) PruneSessions(ctx context.Context, cutoff int64) error {
 	_, err := d.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < ? OR revoked_at < ?`, cutoff, cutoff)
 	return err
 }
+
+// RevokeOtherSessions revokes all of a user's sessions except keepID.
+func (d *DB) RevokeOtherSessions(ctx context.Context, userID, keepID string) error {
+	_, err := d.ExecContext(ctx,
+		`UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND id != ? AND revoked_at IS NULL`, now(), userID, keepID)
+	return err
+}

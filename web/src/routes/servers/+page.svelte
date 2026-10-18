@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { api, type Server } from '#lib/api.ts';
 	import { session } from '#lib/session.svelte.ts';
 	import { live } from '#lib/ws.svelte.ts';
@@ -18,18 +19,14 @@
 
 	$effect(() => {
 		if (session.isAdmin) load();
+		else goto('/status', { replaceState: true });
 	});
 </script>
 
 <svelte:head><title>Servers · mcsman</title></svelte:head>
 
 <main class="container stack">
-	{#if !session.isAdmin}
-		<div class="card empty">
-			<h2>Welcome, {session.user?.username}</h2>
-			<p>Server management is for admins. A public status page is coming soon.</p>
-		</div>
-	{:else}
+	{#if session.isAdmin}
 		<div class="row">
 			<h1>Servers</h1>
 			<span class="spacer"></span>

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { session } from '#lib/session.svelte.ts';
 
-	goto('/servers', { replaceState: true });
+	// The root layout only renders this once the session has loaded.
+	goto(session.isAdmin ? '/servers' : '/status', { replaceState: true });
 </script>

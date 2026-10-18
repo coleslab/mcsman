@@ -25,6 +25,7 @@ import (
 	"mcsman/internal/events"
 	"mcsman/internal/server"
 	"mcsman/internal/testutil"
+	"mcsman/internal/whitelist"
 )
 
 const secret = "0123456789abcdef0123456789abcdef"
@@ -59,10 +60,13 @@ func newEnv(t *testing.T, trusted ...string) *env {
 	})
 	cfg := &config.Config{}
 	cfg.HTTP.TrustedProxies = trusted
+	authSvc := auth.NewService(d, secret, time.Minute, time.Hour)
 	a := New(Deps{
-		Config: cfg, DB: d, Auth: auth.NewService(d, secret, time.Minute, time.Hour), Servers: m, Log: log,
-		Backups: &backup.Manager{DB: d, Servers: m, Bus: bus, Log: log, DataDir: dir, Keep: 5},
-		Bus:     bus,
+		Config: cfg, DB: d, Auth: authSvc, Servers: m, Log: log,
+		Backups:   &backup.Manager{DB: d, Servers: m, Bus: bus, Log: log, DataDir: dir, Keep: 5},
+		Bus:       bus,
+		Invites:   &auth.Invites{DB: d, Auth: authSvc, BaseURL: "https://mc.example.com", DefaultTTL: time.Hour},
+		Whitelist: &whitelist.Service{DB: d, Servers: m, Bus: bus, Log: log},
 	})
 	e := &env{t: t, tcp: httptest.NewServer(a.Handler()), sock: a.SocketHandler(), db: d, servers: m}
 	t.Cleanup(func() {

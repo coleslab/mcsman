@@ -26,6 +26,7 @@ import (
 	"mcsman/internal/metrics"
 	"mcsman/internal/server"
 	"mcsman/internal/version"
+	"mcsman/internal/whitelist"
 	"mcsman/web"
 )
 
@@ -88,9 +89,14 @@ func run(configPath string) error {
 		DataDir: cfg.Daemon.DataDir, Keep: cfg.Backup.DefaultKeep,
 	}
 
+	wl := &whitelist.Service{DB: database, Servers: servers, Bus: bus, Log: log}
+	invites := &auth.Invites{
+		DB: database, Auth: authSvc, BaseURL: cfg.HTTP.BaseURL, DefaultTTL: cfg.Auth.InviteDefaultTTL.D(),
+	}
+
 	apiSrv := api.New(api.Deps{
 		Config: cfg, DB: database, Auth: authSvc, Servers: servers, Backups: backups,
-		Versions: paper, Bus: bus, Log: log, Web: web.Handler(),
+		Versions: paper, Bus: bus, Invites: invites, Whitelist: wl, Log: log, Web: web.Handler(),
 	})
 
 	httpSrv := &http.Server{
@@ -130,6 +136,7 @@ func run(configPath string) error {
 	defer stop()
 	go housekeeping(ctx, apiSrv, database, log)
 	go (&metrics.Collector{Servers: servers, Bus: bus, Log: log}).Run(ctx)
+	go wl.Run(ctx)
 
 	select {
 	case <-ctx.Done():

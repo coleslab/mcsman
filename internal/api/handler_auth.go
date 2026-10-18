@@ -26,7 +26,7 @@ func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Username = strings.TrimSpace(req.Username)
-	if !validUsername(req.Username) {
+	if !auth.ValidUsername(req.Username) {
 		writeError(w, http.StatusBadRequest, "username must be 1-32 characters")
 		return
 	}
@@ -51,10 +51,6 @@ func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("first admin created", "username", u.Username)
 	writeJSON(w, http.StatusCreated, u)
-}
-
-func validUsername(u string) bool {
-	return len(u) >= 1 && len(u) <= 32 && !strings.ContainsAny(u, "\x00\r\n\t")
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

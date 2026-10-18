@@ -30,8 +30,12 @@ func (s *Server) writeErr(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, server.ErrNotFound), errors.Is(err, db.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
-	case errors.Is(err, server.ErrInvalid), errors.Is(err, auth.ErrWeakPassword):
+	case errors.Is(err, server.ErrInvalid), errors.Is(err, auth.ErrWeakPassword), errors.Is(err, auth.ErrInvalidInput):
 		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, db.ErrInviteInvalid):
+		writeError(w, http.StatusGone, err.Error())
+	case errors.Is(err, auth.ErrUsernameTaken):
+		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, server.ErrConflict):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, auth.ErrUnauthorized), errors.Is(err, auth.ErrInvalidCredentials):

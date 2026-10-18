@@ -38,6 +38,14 @@ Commands:
   backup list <server>
   backup restore <server> <backup-id>   server must be stopped
 
+  invite create [--expires 48h] [--whitelist <server>]
+  invite list
+  invite revoke <invite-id>
+
+  user list
+  user role <username> admin|player
+  user remove <username>
+
 Environment:
   MCSCTL_SOCKET   socket path (default /run/mcsman/mcsman.sock)
 `
@@ -78,6 +86,16 @@ func dispatch(c *client, args []string) error {
 			return errors.New("missing backup subcommand")
 		}
 		return dispatchBackup(c, args[1], args[2:])
+	case "invite":
+		if len(args) < 2 {
+			return errors.New("missing invite subcommand")
+		}
+		return dispatchInvite(c, args[1], args[2:])
+	case "user":
+		if len(args) < 2 {
+			return errors.New("missing user subcommand")
+		}
+		return dispatchUser(c, args[1], args[2:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

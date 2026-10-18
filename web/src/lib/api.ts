@@ -53,6 +53,42 @@ export interface Backup {
 	created_by: string | null;
 }
 
+export interface PublicServer {
+	name: string;
+	status: Status;
+	player_count: number;
+	version: string;
+	connection_address: string | null;
+}
+
+export interface Invite {
+	id: string;
+	created_at: number;
+	expires_at: number;
+	whitelist_server_id: string | null;
+	whitelist_server_name: string | null;
+}
+
+export interface CreatedInvite {
+	id: string;
+	token: string;
+	url: string;
+	expires_at: number;
+	whitelist_server_name: string | null;
+}
+
+export interface InviteInfo {
+	expires_at: number;
+	whitelist_server_name: string | null;
+	requires_mc_username: boolean;
+}
+
+export interface WhitelistedServer {
+	name: string;
+	connection_address: string | null;
+	queued: boolean;
+}
+
 export class ApiError extends Error {
 	constructor(
 		public status: number,
@@ -210,6 +246,29 @@ export const api = {
 		a.click();
 		setTimeout(() => URL.revokeObjectURL(url), 10_000);
 	},
+
+	status: () => request<{ servers: PublicServer[] }>('GET', '/api/status'),
+
+	invites: () => request<Invite[]>('GET', '/api/invites'),
+	createInvite: (expires_in: string, whitelist_server_id?: string) =>
+		request<CreatedInvite>('POST', '/api/invites', { expires_in, whitelist_server_id }),
+	revokeInvite: (id: string) => request('DELETE', `/api/invites/${id}`),
+	inviteInfo: (token: string) => request<InviteInfo>('GET', `/api/invites/${encodeURIComponent(token)}`),
+	async redeem(token: string, body: { username: string; password: string; mc_username?: string }) {
+		const r = await request<{
+			access_token: string;
+			refresh_token: string;
+			whitelisted_server: WhitelistedServer | null;
+		}>('POST', `/api/invites/${encodeURIComponent(token)}/redeem`, body);
+		tokens.set(r.access_token, r.refresh_token);
+		return r.whitelisted_server;
+	},
+
+	users: () => request<User[]>('GET', '/api/users'),
+	setRole: (id: string, role: Role) => request<User>('PATCH', `/api/users/${id}`, { role }),
+	deleteUser: (id: string) => request('DELETE', `/api/users/${id}`),
+	changePassword: (current: string, next: string) =>
+		request('POST', '/api/users/me/password', { current, new: next }),
 
 	paperVersions: (refresh = false) =>
 		request<{ versions: string[] }>('GET', `/api/versions/paper${refresh ? '?refresh=true' : ''}`)
