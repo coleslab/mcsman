@@ -1,0 +1,7 @@
+/bin/
+/dev-data/
+/mcsman.yaml
+*.env
+web/node_modules/
+web/.svelte-kit/
+web/build/

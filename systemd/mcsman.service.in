@@ -1,0 +1,23 @@
+[Unit]
+Description=mcsman Minecraft server manager
+After=network.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+EnvironmentFile=/etc/mcsman/mcsman.env
+ExecStart=/usr/local/bin/mcsman --config /etc/mcsman/mcsman.yaml
+Restart=on-failure
+RestartSec=5s
+RuntimeDirectory=mcsman
+RuntimeDirectoryMode=0750
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mcsman /run/mcsman
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

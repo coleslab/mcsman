@@ -1,0 +1,29 @@
+# mcsman
+
+Self-hosted Paper server manager. Spec: `docs/SPEC.md`. Build plan and spec deviations:
+see "Decisions" below.
+
+## Commands
+- `make build` — static binaries (`CGO_ENABLED=0`) into `bin/`, builds `web/` first if present
+- `make test` — `go test -race ./...`
+- `make vet`
+- `make systemd` — render unit file with the current user/group
+
+## Conventions
+- All user-influenced file paths go through `fsutil.SafePath`. No exceptions.
+- All downloads go through `fsutil.DownloadVerified` (temp file → SHA-256 → constant-time compare → rename).
+- Never `sh -c`; never put secrets (RCON password, webhook URLs, JWT secret) in argv or logs.
+- Secrets at rest: AES-GCM via `internal/crypto`, key = HKDF-SHA256(jwt_secret, label).
+- External API base URLs are injectable so tests use `httptest` fakes; process tests use `internal/testutil/fakemc`.
+
+## Decisions (deviations from spec)
+- Daemon and Java run as the invoking user (no `minecraft` user).
+- Discord webhooks stored in DB (`webhooks` table, URL encrypted, label "webhook"); config/env only seed on first start.
+- Invite tokens looked up by `WHERE token_hash = ?` (SHA-256 of 256-bit token).
+- `POST /api/users/me/password`; WebSocket auth via single-use ticket (`POST /api/ws-ticket`).
+- `trusted_proxies` config for client IP behind reverse proxy.
+- Server creation requires `accept_eula: true`.
+- Socket clients are admin (socket is 0660); `mcsctl init` seeds first admin only when no users exist.
+
+## Workflow
+Phase-by-phase; after each phase demo + wait for user confirmation, then one commit.
