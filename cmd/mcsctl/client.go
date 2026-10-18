@@ -90,6 +90,7 @@ type serverInfo struct {
 	RCONPort          int      `json:"rcon_port"`
 	MaxMemoryMB       int      `json:"max_memory_mb"`
 	AutoRestart       bool     `json:"auto_restart"`
+	Autostart         bool     `json:"autostart"`
 	CreatedAt         int64    `json:"created_at"`
 	Status            string   `json:"status"`
 	ConnectionAddress *string  `json:"connection_address"`

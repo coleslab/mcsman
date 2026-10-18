@@ -62,6 +62,20 @@ make systemd                        # renders bin/mcsman.service for the current
 This updates mcsman itself; upgrading a server's Paper/Java version is
 separate (Version tab or `mcsctl upgrade run`).
 
+`packaging/arch/update.sh` does all of the steps below: it pulls, builds while
+servers keep running, stops them with a countdown, saves the database, config
+and previous package to `~/mcsman-pre-update/<time>/`, installs, restarts the
+daemon and starts the servers that were running (autostart ones start on
+their own). `-d SECS` sets the countdown, `-b` backs up each running server,
+`-h` lists the rest. If something goes wrong it prints the rollback command:
+
+```sh
+packaging/arch/update.sh
+packaging/arch/update.sh --rollback ~/mcsman-pre-update/20261018-120000
+```
+
+To do it by hand:
+
 **1. Warn players.** Restarting the daemon gracefully stops every running
 server, but without an in-game countdown. Stop them yourself first if people
 are online, and take a fresh backup if you like:
