@@ -45,6 +45,19 @@ type Options struct {
 	Java func(version string) (string, error)
 	// Backoff overrides the crash restart delays (tests).
 	Backoff []time.Duration
+	// Provisioner validates versions and installs server JARs on create.
+	// Nil skips provisioning (tests place server.jar themselves).
+	Provisioner Provisioner
+}
+
+// Provisioner resolves Minecraft versions to their requirements and installs
+// server software.
+type Provisioner interface {
+	// JavaFor returns the Java major version a Minecraft version needs;
+	// known is false if the version does not exist.
+	JavaFor(ctx context.Context, mcVersion string) (major int, known bool, err error)
+	// InstallJar installs the server JAR for mcVersion as dir/server.jar.
+	InstallJar(ctx context.Context, mcVersion, dir string) error
 }
 
 // Manager is the registry of server instances.
@@ -160,6 +173,18 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (*db.Server, error
 	if !mcVersionRe.MatchString(p.MCVersion) {
 		return nil, fmt.Errorf("%w: mc_version %q is not a version number", ErrInvalid, p.MCVersion)
 	}
+	if prov := m.opts.Provisioner; prov != nil {
+		major, known, err := prov.JavaFor(ctx, p.MCVersion)
+		if err != nil {
+			return nil, fmt.Errorf("look up version %s: %w", p.MCVersion, err)
+		}
+		if !known {
+			return nil, fmt.Errorf("%w: Paper has no release %q", ErrInvalid, p.MCVersion)
+		}
+		if p.JavaVersion == "" && major > 0 {
+			p.JavaVersion = strconv.Itoa(major)
+		}
+	}
 	if p.JavaVersion == "" {
 		p.JavaVersion = strconv.Itoa(java.MajorFor(p.MCVersion))
 	}
@@ -204,19 +229,43 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (*db.Server, error
 		ConnectionAddress: emptyToNil(p.ConnectionAddress),
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.checkPortsUnusedLocked("", s.Port, s.RCONPort); err != nil {
+	if err := m.checkNameAndPorts(s); err != nil {
 		return nil, err
+	}
+
+	_, statErr := os.Stat(dir)
+	created := os.IsNotExist(statErr)
+	cleanup := func() {
+		if created {
+			os.RemoveAll(dir)
+		}
 	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
 	if err := fsutil.WriteFileAtomic(filepath.Join(dir, "eula.txt"),
 		[]byte("# Accepted via mcsman\neula=true\n"), 0o640); err != nil {
+		cleanup()
+		return nil, err
+	}
+	// Download outside the registry lock; it can take a while.
+	if prov := m.opts.Provisioner; prov != nil {
+		if _, err := os.Stat(filepath.Join(dir, "server.jar")); os.IsNotExist(err) {
+			if err := prov.InstallJar(ctx, s.MCVersion, dir); err != nil {
+				cleanup()
+				return nil, fmt.Errorf("install Paper %s: %w", s.MCVersion, err)
+			}
+		}
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.checkPortsUnusedLocked("", s.Port, s.RCONPort); err != nil {
+		cleanup()
 		return nil, err
 	}
 	if err := m.opts.DB.CreateServer(ctx, s); err != nil {
+		cleanup()
 		if isUniqueErr(err) {
 			return nil, fmt.Errorf("%w: a server with that name, directory or port already exists", ErrConflict)
 		}
@@ -225,6 +274,45 @@ func (m *Manager) Create(ctx context.Context, p CreateParams) (*db.Server, error
 	m.instances[s.ID] = newInstance(m.deps, s, pw)
 	return s, nil
 }
+
+// checkNameAndPorts fails fast on obvious conflicts before any download.
+func (m *Manager) checkNameAndPorts(s *db.Server) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, inst := range m.instances {
+		if inst.srv.Name == s.Name || inst.srv.Directory == s.Directory {
+			return fmt.Errorf("%w: a server named %q already exists", ErrConflict, s.Name)
+		}
+	}
+	return m.checkPortsUnusedLocked("", s.Port, s.RCONPort)
+}
+
+// Running returns instances whose status is running.
+func (m *Manager) Running() []*Instance {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []*Instance
+	for _, inst := range m.instances {
+		if inst.Status() == db.StatusRunning {
+			out = append(out, inst)
+		}
+	}
+	return out
+}
+
+// All returns every instance.
+func (m *Manager) All() []*Instance {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*Instance, 0, len(m.instances))
+	for _, inst := range m.instances {
+		out = append(out, inst)
+	}
+	return out
+}
+
+// DataDir is the daemon data directory.
+func (m *Manager) DataDir() string { return m.opts.DataDir }
 
 // UpdateParams holds optional fields for Update; nil means unchanged.
 type UpdateParams struct {

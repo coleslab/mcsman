@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -18,11 +17,16 @@ import (
 
 	"mcsman/internal/api"
 	"mcsman/internal/auth"
+	"mcsman/internal/backup"
 	"mcsman/internal/config"
 	"mcsman/internal/crypto"
 	"mcsman/internal/db"
 	"mcsman/internal/events"
+	"mcsman/internal/java"
+	"mcsman/internal/metrics"
 	"mcsman/internal/server"
+	"mcsman/internal/version"
+	"mcsman/web"
 )
 
 func main() {
@@ -61,17 +65,33 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
+	if cfg.HTTP.BaseURL != "" {
+		version.UserAgent = "mcsman/1.0 (+" + cfg.HTTP.BaseURL + ")"
+	}
 	bus := events.NewBus()
 	authSvc := auth.NewService(database, cfg.Auth.JWTSecret, cfg.Auth.AccessTokenTTL.D(), cfg.Auth.RefreshTokenTTL.D())
+	javaMgr := java.NewManager(cfg.Java.CacheDir, log)
+	paper := version.NewClient()
 	servers := server.NewManager(server.Options{
 		DB: database, Bus: bus, Sealer: rconSealer, DataDir: cfg.Daemon.DataDir, Logger: log,
-		Java: javaResolver(cfg.Java.CacheDir, log),
+		Java: javaMgr.Resolve,
+		Provisioner: &version.Provisioner{
+			Client: paper,
+			Jars:   &version.JarStore{Dir: filepath.Join(cfg.Daemon.DataDir, "jars", "paper"), Client: paper},
+		},
 	})
 	if err := servers.Load(context.Background()); err != nil {
 		return fmt.Errorf("load servers: %w", err)
 	}
+	backups := &backup.Manager{
+		DB: database, Servers: servers, Bus: bus, Log: log,
+		DataDir: cfg.Daemon.DataDir, Keep: cfg.Backup.DefaultKeep,
+	}
 
-	apiSrv := api.New(cfg, database, authSvc, servers, log)
+	apiSrv := api.New(api.Deps{
+		Config: cfg, DB: database, Auth: authSvc, Servers: servers, Backups: backups,
+		Versions: paper, Bus: bus, Log: log, Web: web.Handler(),
+	})
 
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTP.Listen,
@@ -109,6 +129,7 @@ func run(configPath string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go housekeeping(ctx, apiSrv, database, log)
+	go (&metrics.Collector{Servers: servers, Bus: bus, Log: log}).Run(ctx)
 
 	select {
 	case <-ctx.Done():
@@ -145,24 +166,6 @@ func housekeeping(ctx context.Context, a *api.Server, d *db.DB, log *slog.Logger
 				}
 			}
 		}
-	}
-}
-
-// javaResolver finds the java binary for a major version: a managed install
-// under cacheDir if present, otherwise java on PATH. Managed downloads
-// arrive with the Java manager.
-func javaResolver(cacheDir string, log *slog.Logger) func(string) (string, error) {
-	return func(version string) (string, error) {
-		managed := filepath.Join(cacheDir, version, "bin", "java")
-		if _, err := os.Stat(managed); err == nil {
-			return managed, nil
-		}
-		p, err := exec.LookPath("java")
-		if err != nil {
-			return "", fmt.Errorf("no managed Java %s in %s and no java on PATH", version, cacheDir)
-		}
-		log.Warn("using system java; managed install not found", "want", version, "path", p)
-		return p, nil
 	}
 }
 

@@ -34,6 +34,10 @@ Commands:
   server cmd <name> <command...>         run a command via RCON
   server delete <name>
 
+  backup create <server> [--tag manual]
+  backup list <server>
+  backup restore <server> <backup-id>   server must be stopped
+
 Environment:
   MCSCTL_SOCKET   socket path (default /run/mcsman/mcsman.sock)
 `
@@ -69,6 +73,11 @@ func dispatch(c *client, args []string) error {
 			return errors.New("missing server subcommand")
 		}
 		return dispatchServer(c, args[1], args[2:])
+	case "backup":
+		if len(args) < 2 {
+			return errors.New("missing backup subcommand")
+		}
+		return dispatchBackup(c, args[1], args[2:])
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

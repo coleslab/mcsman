@@ -5,32 +5,55 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
 	"mcsman/internal/auth"
+	"mcsman/internal/backup"
 	"mcsman/internal/config"
 	"mcsman/internal/db"
+	"mcsman/internal/events"
 	"mcsman/internal/server"
+	"mcsman/internal/version"
 )
+
+// Deps are the API's collaborators.
+type Deps struct {
+	Config   *config.Config
+	DB       *db.DB
+	Auth     *auth.Service
+	Servers  *server.Manager
+	Backups  *backup.Manager
+	Versions *version.Client
+	Bus      *events.Bus
+	Log      *slog.Logger
+	// Web serves the embedded UI for non-API paths; nil disables it.
+	Web http.Handler
+}
 
 // Server holds the API's dependencies.
 type Server struct {
-	cfg     *config.Config
-	db      *db.DB
-	auth    *auth.Service
-	servers *server.Manager
-	log     *slog.Logger
-	tickets *ticketStore
+	cfg      *config.Config
+	db       *db.DB
+	auth     *auth.Service
+	servers  *server.Manager
+	backups  *backup.Manager
+	versions *version.Client
+	bus      *events.Bus
+	log      *slog.Logger
+	web      http.Handler
+	tickets  *ticketStore
 
 	loginLimit   *rateLimiter
 	refreshLimit *rateLimiter
 }
 
-func New(cfg *config.Config, d *db.DB, a *auth.Service, m *server.Manager, log *slog.Logger) *Server {
+func New(d Deps) *Server {
 	return &Server{
-		cfg: cfg, db: d, auth: a, servers: m, log: log,
+		cfg: d.Config, db: d.DB, auth: d.Auth, servers: d.Servers, backups: d.Backups,
+		versions: d.Versions, bus: d.Bus, log: d.Log, web: d.Web,
 		tickets:      newTicketStore(),
 		loginLimit:   newRateLimiter(10),
 		refreshLimit: newRateLimiter(20),
@@ -68,6 +91,7 @@ func (s *Server) router() http.Handler {
 		// The console WebSocket authenticates with a ticket in the query
 		// string, since browsers cannot set headers on WebSocket requests.
 		r.Get("/servers/{id}/console", s.handleConsole)
+		r.Get("/events", s.handleEvents)
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAuth)
@@ -78,6 +102,8 @@ func (s *Server) router() http.Handler {
 
 			r.Get("/servers/{id}", s.handleGetServer)
 			r.Get("/servers/{id}/players", s.handlePlayers)
+			r.Get("/servers/{id}/backups", s.handleListBackups)
+			r.Get("/versions/paper", s.handlePaperVersions)
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireAdmin)
@@ -90,10 +116,18 @@ func (s *Server) router() http.Handler {
 				r.Post("/servers/{id}/restart", s.handleRestart)
 				r.Post("/servers/{id}/command", s.handleCommand)
 				r.Get("/servers/{id}/events", s.handleServerEvents)
+				r.Post("/servers/{id}/backups", s.handleCreateBackup)
+				r.Post("/servers/{id}/backups/{backup_id}/restore", s.handleRestoreBackup)
+				r.Delete("/servers/{id}/backups/{backup_id}", s.handleDeleteBackup)
+				r.Get("/servers/{id}/backups/{backup_id}/download", s.handleDownloadBackup)
 			})
 		})
 	})
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		if s.web != nil && !strings.HasPrefix(r.URL.Path, "/api/") {
+			s.web.ServeHTTP(w, r)
+			return
+		}
 		writeError(w, http.StatusNotFound, "not found")
 	})
 	return r

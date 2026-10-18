@@ -25,5 +25,15 @@ see "Decisions" below.
 - Server creation requires `accept_eula: true`.
 - Socket clients are admin (socket is 0660); `mcsctl init` seeds first admin only when no users exist.
 
+## Web UI (`web/`, SvelteKit 3 + Svelte 5 runes)
+- Kit 3: config lives in `sveltekit({...})` in `vite.config.ts` (no svelte.config.js);
+  `$lib` is gone — use `#lib/...` (package.json "imports") with explicit `.ts` extensions.
+- `npm run check` must be clean; `npm run build` writes `web/build` (embedded by `web/embed.go`).
+- Dev: `npm run dev` proxies `/api` to `MCSMAN_DEV_API` (default http://127.0.0.1:8091).
+
+## Operational notes
+- Paper binds RCON on all interfaces (no separate bind option); firewall the RCON ports.
+- External APIs: Paper Fill v3 (`fill.papermc.io/v3`; v2 is 410 Gone), Adoptium v3 for JREs.
+
 ## Workflow
 Phase-by-phase; after each phase demo + wait for user confirmation, then one commit.

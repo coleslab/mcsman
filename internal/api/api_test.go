@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"mcsman/internal/auth"
+	"mcsman/internal/backup"
 	"mcsman/internal/config"
 	"mcsman/internal/crypto"
 	"mcsman/internal/db"
@@ -51,13 +52,18 @@ func newEnv(t *testing.T, trusted ...string) *env {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sealer, _ := crypto.NewSealer(secret, crypto.LabelRCON)
+	bus := events.NewBus()
 	m := server.NewManager(server.Options{
-		DB: d, Bus: events.NewBus(), Sealer: sealer, DataDir: dir, Logger: log,
+		DB: d, Bus: bus, Sealer: sealer, DataDir: dir, Logger: log,
 		Java: func(string) (string, error) { return fake, nil },
 	})
 	cfg := &config.Config{}
 	cfg.HTTP.TrustedProxies = trusted
-	a := New(cfg, d, auth.NewService(d, secret, time.Minute, time.Hour), m, log)
+	a := New(Deps{
+		Config: cfg, DB: d, Auth: auth.NewService(d, secret, time.Minute, time.Hour), Servers: m, Log: log,
+		Backups: &backup.Manager{DB: d, Servers: m, Bus: bus, Log: log, DataDir: dir, Keep: 5},
+		Bus:     bus,
+	})
 	e := &env{t: t, tcp: httptest.NewServer(a.Handler()), sock: a.SocketHandler(), db: d, servers: m}
 	t.Cleanup(func() {
 		e.tcp.Close()
@@ -360,5 +366,91 @@ func TestSocketListenerAcceptsOwner(t *testing.T) {
 	}
 	if _, err := ListenSocket(path, slog.Default()); err == nil {
 		t.Error("second listener on live socket should fail")
+	}
+}
+
+func TestBackupEndpointsAndEventsSocket(t *testing.T) {
+	e := newEnv(t)
+	e.initAdmin()
+	admin, _ := e.login("admin", "password123")
+	h, _ := auth.HashPassword("password123")
+	e.db.CreateUser(context.Background(), &db.User{Username: "steve", PasswordHash: h, Role: db.RolePlayer})
+	player, _ := e.login("steve", "password123")
+
+	_, out := e.call("POST", "/api/servers", admin, map[string]any{
+		"name": "survival", "mc_version": "1.21.1", "port": testutil.FreePort(t), "rcon_port": testutil.FreePort(t), "accept_eula": true,
+	})
+	id := out["id"].(string)
+	os.WriteFile(filepath.Join(out["directory"].(string), "server.jar"), []byte("x"), 0o640)
+
+	// Player events socket: should see server_status but never backup events.
+	_, tout := e.call("POST", "/api/ws-ticket", player, nil)
+	wsURL := "ws" + strings.TrimPrefix(e.tcp.URL, "http") + "/api/events?ticket=" + tout["ticket"].(string)
+	pconn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pconn.Close()
+
+	e.call("POST", "/api/servers/"+id+"/start", admin, nil)
+	inst, _ := e.servers.Get(id)
+	deadline := time.Now().Add(5 * time.Second)
+	for inst.Status() != db.StatusRunning && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if resp, _ := e.call("POST", "/api/servers/"+id+"/backups", player, nil); resp.StatusCode != 403 {
+		t.Errorf("player backup: %d", resp.StatusCode)
+	}
+	resp, bout := e.call("POST", "/api/servers/"+id+"/backups?wait=true", admin, map[string]string{"tag": "manual"})
+	if resp.StatusCode != 201 {
+		t.Fatalf("backup: %d %v", resp.StatusCode, bout)
+	}
+	bid := bout["id"].(string)
+
+	// Players can list backups but not download them.
+	req, _ := http.NewRequest("GET", e.tcp.URL+"/api/servers/"+id+"/backups", nil)
+	req.Header.Set("Authorization", "Bearer "+player)
+	lresp, _ := http.DefaultClient.Do(req)
+	var list []map[string]any
+	json.NewDecoder(lresp.Body).Decode(&list)
+	lresp.Body.Close()
+	if len(list) != 1 {
+		t.Errorf("list: %v", list)
+	}
+	if resp, _ := e.call("GET", "/api/servers/"+id+"/backups/"+bid+"/download", player, nil); resp.StatusCode != 403 {
+		t.Errorf("player download: %d", resp.StatusCode)
+	}
+	req, _ = http.NewRequest("GET", e.tcp.URL+"/api/servers/"+id+"/backups/"+bid+"/download", nil)
+	req.Header.Set("Authorization", "Bearer "+admin)
+	dresp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(dresp.Body)
+	dresp.Body.Close()
+	if dresp.StatusCode != 200 || int64(len(body)) != int64(bout["size_bytes"].(float64)) {
+		t.Errorf("download: %d, %d bytes", dresp.StatusCode, len(body))
+	}
+
+	// Unknown backup in another server's namespace → 404.
+	if resp, _ := e.call("DELETE", "/api/servers/"+id+"/backups/nope", admin, nil); resp.StatusCode != 404 {
+		t.Errorf("delete unknown: %d", resp.StatusCode)
+	}
+	if resp, _ := e.call("POST", "/api/servers/"+id+"/backups/"+bid+"/restore", admin, nil); resp.StatusCode != 409 {
+		t.Errorf("restore while running: %d", resp.StatusCode)
+	}
+
+	pconn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	sawStatus := false
+	for !sawStatus {
+		var ev events.Event
+		if err := pconn.ReadJSON(&ev); err != nil {
+			t.Fatalf("player events: %v", err)
+		}
+		if strings.HasPrefix(ev.Type, "backup") || ev.Type == events.ConsoleOutput {
+			t.Errorf("player received %s", ev.Type)
+		}
+		sawStatus = ev.Type == events.ServerStatus
 	}
 }

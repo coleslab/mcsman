@@ -1,0 +1,271 @@
+:root {
+	--bg: #f6f7f9;
+	--surface: #ffffff;
+	--surface-2: #eef0f3;
+	--border: #dde1e6;
+	--text: #14181d;
+	--text-2: #5b6470;
+	--accent: #2f8a4c;
+	--accent-text: #ffffff;
+	--accent-soft: #e3f3e8;
+	--danger: #c53b3b;
+	--danger-soft: #fbe9e9;
+	--warn: #b7791f;
+	--warn-soft: #fdf3e1;
+	--info: #3b6fc5;
+	--terminal-bg: #0f1216;
+	--radius: 12px;
+	--radius-sm: 8px;
+	--shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 2px 8px rgb(0 0 0 / 0.04);
+	--mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+	color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--bg: #111418;
+		--surface: #191d22;
+		--surface-2: #22272e;
+		--border: #2d333b;
+		--text: #e6e9ed;
+		--text-2: #8f99a6;
+		--accent: #4cb46c;
+		--accent-text: #0b1a10;
+		--accent-soft: #1b3324;
+		--danger: #ef6b6b;
+		--danger-soft: #3a1f21;
+		--warn: #e0a84a;
+		--warn-soft: #3a2e18;
+		--info: #6f9ee8;
+		--shadow: none;
+		color-scheme: dark;
+	}
+}
+
+:root[data-theme='dark'] {
+	--bg: #111418;
+	--surface: #191d22;
+	--surface-2: #22272e;
+	--border: #2d333b;
+	--text: #e6e9ed;
+	--text-2: #8f99a6;
+	--accent: #4cb46c;
+	--accent-text: #0b1a10;
+	--accent-soft: #1b3324;
+	--danger: #ef6b6b;
+	--danger-soft: #3a1f21;
+	--warn: #e0a84a;
+	--warn-soft: #3a2e18;
+	--info: #6f9ee8;
+	--shadow: none;
+	color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font:
+		15px/1.5 system-ui,
+		-apple-system,
+		'Segoe UI',
+		Roboto,
+		sans-serif;
+	-webkit-font-smoothing: antialiased;
+}
+
+a {
+	color: inherit;
+}
+
+h1,
+h2,
+h3 {
+	margin: 0;
+	line-height: 1.25;
+	font-weight: 650;
+}
+
+h1 {
+	font-size: 1.4rem;
+}
+h2 {
+	font-size: 1.05rem;
+}
+
+.container {
+	max-width: 960px;
+	margin: 0 auto;
+	padding: 16px;
+}
+
+.card {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+	padding: 16px;
+}
+
+.muted {
+	color: var(--text-2);
+}
+
+.mono {
+	font-family: var(--mono);
+}
+
+.stack {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.spacer {
+	flex: 1;
+}
+
+button,
+.btn {
+	appearance: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	min-height: 40px;
+	padding: 0 14px;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--border);
+	background: var(--surface-2);
+	color: var(--text);
+	font: inherit;
+	font-weight: 550;
+	cursor: pointer;
+	text-decoration: none;
+	white-space: nowrap;
+	transition:
+		background 0.12s,
+		border-color 0.12s,
+		opacity 0.12s;
+}
+
+button:hover:not(:disabled),
+.btn:hover {
+	border-color: var(--text-2);
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+button.primary,
+.btn.primary {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--accent-text);
+}
+
+button.danger {
+	color: var(--danger);
+}
+
+button.danger.solid {
+	background: var(--danger);
+	border-color: var(--danger);
+	color: #fff;
+}
+
+button.ghost {
+	background: transparent;
+	border-color: transparent;
+}
+
+button.small {
+	min-height: 32px;
+	padding: 0 10px;
+	font-size: 0.875rem;
+}
+
+input,
+select {
+	width: 100%;
+	min-height: 42px;
+	padding: 8px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--surface);
+	color: var(--text);
+	font: inherit;
+}
+
+input:focus,
+select:focus,
+button:focus-visible,
+.btn:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+
+input[type='checkbox'] {
+	width: 18px;
+	min-height: 18px;
+	accent-color: var(--accent);
+}
+
+label.field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 0.875rem;
+	font-weight: 550;
+}
+
+label.field small {
+	font-weight: 400;
+	color: var(--text-2);
+}
+
+.alert {
+	padding: 10px 12px;
+	border-radius: var(--radius-sm);
+	font-size: 0.9rem;
+}
+
+.alert.error {
+	background: var(--danger-soft);
+	color: var(--danger);
+}
+
+.alert.warn {
+	background: var(--warn-soft);
+	color: var(--warn);
+}
+
+.empty {
+	text-align: center;
+	padding: 40px 16px;
+	color: var(--text-2);
+}
+
+table {
+	width: 100%;
+	border-collapse: collapse;
+}

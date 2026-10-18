@@ -60,6 +60,28 @@ type Instance struct {
 	restartTimer  *time.Timer
 	ring          ring
 	players       map[string]struct{}
+	busy          string   // name of an exclusive operation (restore, upgrade); blocks Start
+	metrics       *Metrics // latest sample while running
+}
+
+// Metrics is a point-in-time performance sample.
+type Metrics struct {
+	TPS         float64 `json:"tps"`
+	MSPT        float64 `json:"mspt"`
+	RAMUsedMB   int     `json:"ram_used_mb"`
+	RAMMaxMB    int     `json:"ram_max_mb"`
+	PlayerCount int     `json:"player_count"`
+}
+
+// jvmFlags are Aikar's G1 flags, as recommended by PaperMC's API.
+var jvmFlags = []string{
+	"-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200",
+	"-XX:+UnlockExperimentalVMOptions", "-XX:+DisableExplicitGC", "-XX:+AlwaysPreTouch",
+	"-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40", "-XX:G1HeapRegionSize=8M",
+	"-XX:G1ReservePercent=20", "-XX:G1HeapWastePercent=5", "-XX:G1MixedGCCountTarget=4",
+	"-XX:InitiatingHeapOccupancyPercent=15", "-XX:G1MixedGCLiveThresholdPercent=90",
+	"-XX:G1RSetUpdatingPauseTimePercent=5", "-XX:SurvivorRatio=32", "-XX:+PerfDisableSharedMem",
+	"-XX:MaxTenuringThreshold=1",
 }
 
 func newInstance(d *deps, s *db.Server, rconPassword string) *Instance {
@@ -109,17 +131,95 @@ func (i *Instance) Players() []string {
 }
 
 // Start launches the server. It returns once the process is spawned; the
-// status moves from starting to running when the server logs "Done".
+// status moves from starting to running when the server logs "Done". The
+// Java runtime is installed first if needed, which may take a while.
 func (i *Instance) Start() error {
+	if err := i.checkStartable(); err != nil {
+		return err
+	}
+	// Resolve outside the lock: a first-time JRE download can take minutes.
+	if _, err := i.deps.java(i.Server().JavaVersion); err != nil {
+		return fmt.Errorf("install java: %w", err)
+	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	switch i.status {
-	case db.StatusStarting, db.StatusRunning, db.StatusStopping:
-		return fmt.Errorf("%w: server is %s", ErrConflict, i.status)
+	if err := i.checkStartableLocked(); err != nil {
+		return err
 	}
 	i.cancelRestartLocked()
 	i.crashCount = 0
 	return i.startLocked()
+}
+
+func (i *Instance) checkStartable() error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.checkStartableLocked()
+}
+
+func (i *Instance) checkStartableLocked() error {
+	if i.busy != "" {
+		return fmt.Errorf("%w: %s in progress", ErrConflict, i.busy)
+	}
+	switch i.status {
+	case db.StatusStarting, db.StatusRunning, db.StatusStopping:
+		return fmt.Errorf("%w: server is %s", ErrConflict, i.status)
+	}
+	return nil
+}
+
+// BeginExclusive marks an operation that needs the server stopped and must
+// not race a start (restore, upgrade). Call the returned func when done.
+func (i *Instance) BeginExclusive(op string) (func(), error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.busy != "" {
+		return nil, fmt.Errorf("%w: %s in progress", ErrConflict, i.busy)
+	}
+	if i.proc != nil {
+		return nil, fmt.Errorf("%w: stop the server first", ErrConflict)
+	}
+	i.cancelRestartLocked()
+	i.busy = op
+	return func() {
+		i.mu.Lock()
+		i.busy = ""
+		i.mu.Unlock()
+	}, nil
+}
+
+// Busy returns the name of the exclusive operation in progress, if any.
+func (i *Instance) Busy() string {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.busy
+}
+
+// SetMetrics records a sample and reconciles the player list.
+func (i *Instance) SetMetrics(m *Metrics, players []string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.status != db.StatusRunning {
+		return
+	}
+	i.metrics = m
+	if players != nil {
+		i.players = make(map[string]struct{}, len(players))
+		for _, p := range players {
+			i.players[p] = struct{}{}
+		}
+	}
+}
+
+// Metrics returns the latest sample, or nil when not running.
+func (i *Instance) Metrics() *Metrics {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.metrics == nil || i.status != db.StatusRunning {
+		return nil
+	}
+	m := *i.metrics
+	return &m
 }
 
 func (i *Instance) startLocked() error {
@@ -144,12 +244,10 @@ func (i *Instance) startLocked() error {
 	if err != nil {
 		return fmt.Errorf("resolve java %s: %w", s.JavaVersion, err)
 	}
-	minMem := min(s.MaxMemoryMB, 1024)
-	args := []string{
-		fmt.Sprintf("-Xms%dM", minMem),
-		fmt.Sprintf("-Xmx%dM", s.MaxMemoryMB),
-		"-jar", "server.jar", "--nogui",
-	}
+	// -Xms equal to -Xmx is Paper's recommendation (with AlwaysPreTouch).
+	args := []string{fmt.Sprintf("-Xms%dM", s.MaxMemoryMB), fmt.Sprintf("-Xmx%dM", s.MaxMemoryMB)}
+	args = append(args, jvmFlags...)
+	args = append(args, "-jar", "server.jar", "--nogui")
 	proc, err := console.Spawn(javaBin, args, s.Directory, childEnv())
 	if err != nil {
 		return fmt.Errorf("spawn: %w", err)
@@ -220,7 +318,7 @@ func (i *Instance) supervise(proc *console.Process, exited chan struct{}, rc *co
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	close(exited)
-	i.proc, i.rcon = nil, nil
+	i.proc, i.rcon, i.metrics = nil, nil, nil
 	i.players = map[string]struct{}{}
 
 	if i.stopRequested {

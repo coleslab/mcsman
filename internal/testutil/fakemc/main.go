@@ -41,6 +41,7 @@ func main() {
 	}
 
 	logf("Starting minecraft server version 1.21.1")
+	makeWorld()
 	game, err := net.Listen("tcp", "127.0.0.1:"+props["server-port"])
 	if err != nil {
 		logf("**** FAILED TO BIND TO PORT! %v", err)
@@ -80,7 +81,30 @@ func main() {
 	os.Exit(1)
 }
 
+// makeWorld creates a small world directory like a real server would.
+func makeWorld() {
+	os.MkdirAll("world/region", 0o750)
+	if !exists("world/level.dat") {
+		os.WriteFile("world/level.dat", []byte("level"), 0o640)
+		os.WriteFile("world/region/r.0.0.mca", make([]byte, 64<<10), 0o640)
+	}
+	os.WriteFile("world/session.lock", []byte("lock"), 0o640)
+}
+
+// record appends each received command to fakemc.commands for tests.
+func record(cmd string) {
+	f, err := os.OpenFile("fakemc.commands", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintln(f, cmd)
+}
+
 func handle(cmd string) string {
+	if cmd != "" {
+		record(cmd)
+	}
 	switch {
 	case cmd == "stop" && exists("fakemc.ignore-stop"):
 		return "Ignoring stop"
@@ -99,7 +123,7 @@ func handle(cmd string) string {
 		return "§6TPS from last 1m, 5m, 15m: §a20.0, §a19.98, §a*20.0"
 	case cmd == "mspt":
 		return "§6Server tick times §e(§7avg§e/§7min§e/§7max§e)§6 from last 5s§7,§6 10s§7,§6 1m§e:\n§6◴ §a1.2§7/§a0.8§7/§a3.4§e, §a1.3§7/§a0.8§7/§a4.0§e, §a1.1§7/§a0.7§7/§a5.2"
-	case cmd == "save-all":
+	case cmd == "save-all" || cmd == "save-all flush":
 		return "Saved the game"
 	case cmd == "save-off":
 		return "Automatic saving is now disabled"

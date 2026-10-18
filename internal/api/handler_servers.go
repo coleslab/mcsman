@@ -15,24 +15,31 @@ import (
 // serverView is the admin representation of a server.
 type serverView struct {
 	db.Server
-	PID         int      `json:"pid,omitempty"`
-	PlayerCount int      `json:"player_count"`
-	Players     []string `json:"players"`
+	PID         int             `json:"pid,omitempty"`
+	PlayerCount int             `json:"player_count"`
+	Players     []string        `json:"players"`
+	Metrics     *server.Metrics `json:"metrics"`
+	Busy        string          `json:"busy,omitempty"`
 }
 
 // playerServerView is what players may see.
 type playerServerView struct {
-	ID                string  `json:"id"`
-	Name              string  `json:"name"`
-	Status            string  `json:"status"`
-	MCVersion         string  `json:"mc_version"`
-	ConnectionAddress *string `json:"connection_address"`
-	PlayerCount       int     `json:"player_count"`
+	ID                string          `json:"id"`
+	Name              string          `json:"name"`
+	Status            string          `json:"status"`
+	MCVersion         string          `json:"mc_version"`
+	ConnectionAddress *string         `json:"connection_address"`
+	PlayerCount       int             `json:"player_count"`
+	Players           []string        `json:"players"`
+	Metrics           *server.Metrics `json:"metrics"`
 }
 
 func viewOf(inst *server.Instance) serverView {
 	players := inst.Players()
-	return serverView{Server: inst.Server(), PID: inst.PID(), PlayerCount: len(players), Players: players}
+	return serverView{
+		Server: inst.Server(), PID: inst.PID(), PlayerCount: len(players), Players: players,
+		Metrics: inst.Metrics(), Busy: inst.Busy(),
+	}
 }
 
 // instance resolves the {id} URL param (ID or name).
@@ -71,6 +78,7 @@ func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, playerServerView{
 		ID: v.ID, Name: v.Name, Status: v.Status, MCVersion: v.MCVersion,
 		ConnectionAddress: v.ConnectionAddress, PlayerCount: v.PlayerCount,
+		Players: v.Players, Metrics: v.Metrics,
 	})
 }
 
