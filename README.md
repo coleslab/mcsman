@@ -28,26 +28,31 @@ git clone <this repo> mcsman && cd mcsman/packaging/arch
 makepkg -si
 ```
 
-Then follow the printed steps (also below). mcsman runs as a normal user of
-your choice — the daemon and all Minecraft servers run as that user.
+The package generates `MCSMAN_JWT_SECRET` in `/etc/mcsman/mcsman.env` (keep
+it; changing it makes stored RCON passwords and webhook URLs unreadable). Then:
 
 ```sh
-# 1. Secret for sessions and encrypting stored secrets (keep it; changing it
-#    makes stored RCON passwords and webhook URLs unreadable)
-sudo sh -c 'echo MCSMAN_JWT_SECRET=$(head -c 48 /dev/urandom | base64 -w0) >> /etc/mcsman/mcsman.env'
-
-# 2. The config must be mode 0600 and readable by the service user
-sudo chown YOURUSER: /etc/mcsman/mcsman.yaml
-sudo $EDITOR /etc/mcsman/mcsman.yaml      # base_url, listen, trusted_proxies
-
-# 3. Start
-sudo systemctl enable --now mcsman@YOURUSER
-
-# 4. First admin account (over the local socket)
-mcsctl init
+sudo mcsman-setup       # service user, public URL, tunnel detection, first admin
+sudo mcsctl doctor      # checks the install and prints a fix for each problem
 ```
 
-Open `http://<host>:8420` (or your public URL) and log in.
+mcsman runs as a normal user of your choice (the daemon and all Minecraft
+servers run as that user). `mcsman-setup` makes the config readable by that
+user, sets `base_url` and `trusted_proxies` (detecting a cloudflared container
+or service), starts `mcsman@USER`, creates the first admin and prints the
+tunnel settings to use. It's safe to rerun. Open `http://<host>:8420` (or your
+public URL) and log in.
+
+<details><summary>Doing it by hand instead of <code>mcsman-setup</code></summary>
+
+```sh
+sudo chown YOURUSER: /etc/mcsman/mcsman.yaml   # must stay 0600
+sudo $EDITOR /etc/mcsman/mcsman.yaml           # base_url, listen, trusted_proxies
+sudo systemctl enable --now mcsman@YOURUSER
+mcsctl init                                    # first admin, over the local socket
+```
+
+</details>
 
 ### Manual install
 
@@ -87,21 +92,21 @@ mcsctl backup create survival
 
 **2. Save mcsman's state.** Database migrations run automatically on startup
 and only go forward, so an older mcsman can't use an upgraded `mcsman.db`.
-Keep a copy so you can roll back, plus the previous package (rebuilding
-overwrites it):
+Keep a copy so you can roll back, plus the installed version's package
+(versions look like `0.1.0.r42.g1a2b3c4`, from the git commit):
 
 ```sh
 sudo systemctl stop mcsman@YOURUSER
 mkdir -p ~/mcsman-pre-update
 sudo cp -a /var/lib/mcsman/mcsman.db* /etc/mcsman ~/mcsman-pre-update/   # db* = WAL files too
-cp packaging/arch/mcsman-*.pkg.tar.zst ~/mcsman-pre-update/
+cp packaging/arch/mcsman-$(pacman -Q mcsman | cut -d' ' -f2)-*.pkg.tar.zst ~/mcsman-pre-update/
 ```
 
 **3. Build and install.**
 
 ```sh
 git pull
-cd packaging/arch && makepkg -sif   # -f: rebuild even if a package file exists
+cd packaging/arch && makepkg -si
 ```
 
 pacman keeps your edited `/etc/mcsman/mcsman.yaml` and `mcsman.env`; new
@@ -112,7 +117,8 @@ manual install, rerun the `make build` and `sudo install` steps above instead.
 
 ```sh
 sudo systemctl start mcsman@YOURUSER
-journalctl -u mcsman@YOURUSER -f    # migrations, then "autostarting server"
+journalctl -u mcsman@YOURUSER -f    # "starting mcsman" with the new version, migrations
+mcsctl doctor
 ```
 
 Only servers with autostart enabled come back on their own; start the others
@@ -167,6 +173,23 @@ http:
   trusted_proxies: [127.0.0.1]    # cloudflared; its CF-Connecting-IP is trusted
 ```
 
+**cloudflared on a Docker network** (not `network_mode: host`): inside the
+container `localhost` is the container itself, so point the tunnel at the
+network's gateway, which is the host, and trust the network's subnet.
+`mcsman-setup` detects this and fills both in. To find them by hand:
+
+```sh
+docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' cloudflared
+docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{.Gateway}}{{end}}' NETWORK
+# e.g. 172.28.0.0/16 172.28.0.1  →  Service: HTTP 172.28.0.1:8420
+#                                   trusted_proxies: [127.0.0.1, 172.28.0.0/16]
+docker run --rm --network NETWORK curlimages/curl -sI http://172.28.0.1:8420   # check
+```
+
+Keep `listen: 0.0.0.0:8420` (a `127.0.0.1` listener isn't reachable from the
+container). `mcsctl doctor` fetches your `base_url` and tells you if the
+tunnel doesn't reach mcsman.
+
 `trusted_proxies` makes per-client rate limits work: without it, every
 tunnelled request looks like it comes from cloudflared and all users share one
 login limit. Don't port-forward 8420; if the host has a firewall, allow it from
@@ -205,6 +228,7 @@ With Caddy/nginx on the same host, set `http.listen: 127.0.0.1:8420` (or keep
 | Schedules | Settings tab | — |
 | Plugins | Plugins tab | `mcsctl plugin search luckperms` · `plugin install survival luckperms` |
 | Upgrade | Version tab | `mcsctl upgrade run survival 26.3` |
+| Check the install | — | `sudo mcsctl doctor` · `mcsctl version` |
 | Worlds | World tab | `mcsctl world import survival world.zip` |
 
 `mcsctl` talks to the daemon over `/run/mcsman/mcsman.sock`; your login user

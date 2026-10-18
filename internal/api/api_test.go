@@ -152,6 +152,25 @@ func TestInitOnlyViaSocketAndOnce(t *testing.T) {
 	}
 }
 
+func TestSystemOnlyViaSocket(t *testing.T) {
+	e := newEnv(t, "172.28.0.0/16")
+	if resp, _ := e.call("GET", "/api/system", "", nil); resp.StatusCode != 404 {
+		t.Errorf("system over TCP: %d", resp.StatusCode)
+	}
+	rec := e.socketCall("GET", "/api/system", nil)
+	var out struct {
+		Version        string   `json:"version"`
+		Users          int      `json:"users"`
+		TrustedProxies []string `json:"trusted_proxies"`
+	}
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+		t.Fatalf("system: %d %s", rec.Code, rec.Body)
+	}
+	if out.Version != "dev" || out.Users != 0 || len(out.TrustedProxies) != 1 {
+		t.Errorf("system: %+v", out)
+	}
+}
+
 func TestAuthFlow(t *testing.T) {
 	e := newEnv(t)
 	e.initAdmin()

@@ -115,6 +115,12 @@ func defaults() Config {
 // Load reads the config at path, enforces 0600 permissions, overlays
 // environment variables and validates the result.
 func Load(path string) (*Config, error) {
+	return LoadWithEnv(path, os.Getenv)
+}
+
+// LoadWithEnv is Load with environment lookups served by getenv (mcsctl
+// doctor reads the service's EnvironmentFile instead of its own env).
+func LoadWithEnv(path string, getenv func(string) string) (*Config, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return nil, err
@@ -126,7 +132,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parse(raw, os.Getenv)
+	return parse(raw, getenv)
 }
 
 func parse(raw []byte, getenv func(string) string) (*Config, error) {

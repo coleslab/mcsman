@@ -2,6 +2,7 @@
 /dev-data/
 /mcsman.yaml
 *.env
+!packaging/mcsman.example.env
 web/node_modules/
 web/.svelte-kit/
 web/build/*

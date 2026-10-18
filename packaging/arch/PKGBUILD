@@ -2,7 +2,12 @@
 # Build from this checkout:   cd packaging/arch && makepkg -si
 # Build uncommitted changes:  MCSMAN_SRC=$(realpath ../..) makepkg -si
 pkgname=mcsman
-pkgver=0.1.0
+# 0.1.0.r<commits>.g<sha> from the checkout, so every commit is a newer
+# package; uncommitted MCSMAN_SRC builds get ".dirty".
+_basever=0.1.0
+_repo=${MCSMAN_SRC:-$startdir/../..}
+pkgver=$_basever.r$(git -C "$_repo" rev-list --count HEAD 2>/dev/null || echo 0).g$(git -C "$_repo" rev-parse --short HEAD 2>/dev/null || echo 0)
+[[ -n $MCSMAN_SRC && -n $(git -C "$MCSMAN_SRC" status --porcelain 2>/dev/null) ]] && pkgver+=.dirty
 pkgrel=1
 pkgdesc='Self-hosted Paper Minecraft server manager with web UI and CLI'
 arch=('x86_64')
@@ -34,7 +39,7 @@ build() {
   cd "$srcdir/mcsman"
   export GOFLAGS='-buildmode=default -mod=readonly -modcacherw'
   export GOPATH="$srcdir/gopath"
-  make build
+  make build VERSION="$pkgver"
 }
 
 check() {
@@ -47,6 +52,7 @@ package() {
   cd "$srcdir/mcsman"
   install -Dm755 bin/mcsman "$pkgdir/usr/bin/mcsman"
   install -Dm755 bin/mcsctl "$pkgdir/usr/bin/mcsctl"
+  install -Dm755 packaging/mcsman-setup "$pkgdir/usr/bin/mcsman-setup"
   install -Dm644 systemd/mcsman@.service "$pkgdir/usr/lib/systemd/system/mcsman@.service"
   install -Dm600 packaging/mcsman.example.yaml "$pkgdir/etc/mcsman/mcsman.yaml"
   install -Dm600 packaging/mcsman.example.env "$pkgdir/etc/mcsman/mcsman.env"

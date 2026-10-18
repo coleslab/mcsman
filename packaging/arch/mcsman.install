@@ -1,16 +1,15 @@
 post_install() {
+  # Fill in MCSMAN_JWT_SECRET (only if it isn't set already).
+  mcsman-setup secret
   cat <<'MSG'
-==> mcsman installed. To finish setup (replace YOURUSER):
-    1. Set a secret:   sudo sh -c 'echo MCSMAN_JWT_SECRET=$(head -c 48 /dev/urandom | base64 -w0) >> /etc/mcsman/mcsman.env'
-    2. Let the daemon read its config (must stay 0600):
-                       sudo chown YOURUSER: /etc/mcsman/mcsman.yaml
-    3. Edit /etc/mcsman/mcsman.yaml (base_url, listen address).
-    4. Start it:       sudo systemctl enable --now mcsman@YOURUSER
-    5. Create admin:   mcsctl init
-    Firewall: open the game ports (25565…), keep RCON ports (game+10) closed.
+==> mcsman installed. Finish setup (service user, public URL, tunnel
+    detection, first admin account) with:
+        sudo mcsman-setup
+    Then check everything with:  sudo mcsctl doctor
 MSG
 }
 
 post_upgrade() {
+  mcsman-setup secret >/dev/null
   echo '==> Restart mcsman to apply: sudo systemctl restart mcsman@YOURUSER'
 }

@@ -17,7 +17,7 @@ var commandTree = map[string][]string{
 	"user":    {"list", "role", "remove"},
 }
 
-var topLevel = []string{"init", "server", "backup", "invite", "plugin", "upgrade", "world", "user", "completion", "help"}
+var topLevel = []string{"init", "doctor", "version", "server", "backup", "invite", "plugin", "upgrade", "world", "user", "completion", "help"}
 
 // printServerNames is used by completion scripts; errors are silent.
 func printServerNames(c *client) {

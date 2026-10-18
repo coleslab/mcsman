@@ -109,6 +109,7 @@ func (s *Server) router() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Use(noStore)
 		r.Post("/init", s.handleInit)
+		r.Get("/system", s.handleSystem)
 
 		r.With(s.loginLimit.middleware).Post("/auth/login", s.handleLogin)
 		r.With(s.refreshLimit.middleware).Post("/auth/refresh", s.handleRefresh)

@@ -18,6 +18,7 @@ import (
 	"mcsman/internal/api"
 	"mcsman/internal/auth"
 	"mcsman/internal/backup"
+	"mcsman/internal/buildinfo"
 	"mcsman/internal/config"
 	"mcsman/internal/cronspec"
 	"mcsman/internal/crypto"
@@ -37,7 +38,12 @@ import (
 
 func main() {
 	configPath := flag.String("config", "./mcsman.yaml", "path to config file")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("mcsman", buildinfo.Version)
+		return
+	}
 	if err := run(*configPath); err != nil {
 		fmt.Fprintln(os.Stderr, "mcsman:", err)
 		os.Exit(1)
@@ -51,6 +57,7 @@ func run(configPath string) error {
 	}
 	log := newLogger(cfg.Daemon.LogLevel)
 	slog.SetDefault(log)
+	log.Info("starting mcsman", "version", buildinfo.Version)
 
 	if err := os.MkdirAll(cfg.Daemon.DataDir, 0o750); err != nil {
 		return err
@@ -73,7 +80,7 @@ func run(configPath string) error {
 	}
 	if cfg.HTTP.BaseURL != "" {
 		// PaperMC and Modrinth ask clients to identify themselves.
-		version.UserAgent = "mcsman/1.0 (+" + cfg.HTTP.BaseURL + ")"
+		version.UserAgent = "mcsman/" + buildinfo.Version + " (+" + cfg.HTTP.BaseURL + ")"
 		plugin.UserAgent = version.UserAgent
 	}
 	bus := events.NewBus()

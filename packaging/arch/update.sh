@@ -3,7 +3,7 @@
 # "Updating mcsman"). Run as your normal user from anywhere; it uses sudo for
 # the service, pacman and copying the database.
 #
-#   update.sh [-u USER] [-d SECONDS] [-b] [-n] [-y]
+#   update.sh [-u USER] [-d SECONDS] [-b] [-n] [-y] [-f]
 #   update.sh --rollback DIR
 set -euo pipefail
 
@@ -17,6 +17,7 @@ Usage: update.sh [options]
   -b        take a backup of each running server after stopping it
   -n        don't git pull; build the current commit
   -y        don't ask for confirmation
+  -f        rebuild and reinstall even if already at the latest version
   --rollback DIR
             reinstall the package and database saved in DIR by an earlier run
 EOF
@@ -25,9 +26,10 @@ EOF
 die() { echo "update.sh: $*" >&2; exit 1; }
 say() { printf '==> %s\n' "$*"; }
 
-svc_user= delay=60 backup=0 pull=1 yes=0 rollback=
+svc_user= delay=60 backup=0 pull=1 yes=0 force=0 rollback=
 while [[ $# -gt 0 ]]; do
 	case $1 in
+	-f) force=1 ;;
 	-u) svc_user=${2:?}; shift ;;
 	-d) delay=${2:?}; shift ;;
 	-b) backup=1 ;;
@@ -93,20 +95,30 @@ if ((pull)); then
 	git -C ../.. pull --ff-only
 fi
 
-# Save the previous package before makepkg -f overwrites it.
+installed=$(pacman -Q mcsman 2>/dev/null | awk '{print $2}')
+[[ -n $installed ]] || die "the mcsman package isn't installed; install it first (README, Install)"
+new_pkg=$(makepkg --packagelist | head -1)
+new_ver=$(basename "$new_pkg")
+new_ver=${new_ver#mcsman-}
+new_ver=${new_ver%-*.pkg.tar.*}
+if [[ $installed == "$new_ver" ]] && ((!force)); then
+	say "Already at $installed (use -f to rebuild and reinstall anyway)"
+	exit 0
+fi
+
+# Keep the installed version's package for rollback.
 snap=~/mcsman-pre-update/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$snap"
-old_pkg=$(makepkg --packagelist | head -1)
-if [[ -f $old_pkg ]]; then
+old_pkg=$(ls mcsman-"$installed"-*.pkg.tar.* 2>/dev/null | head -1) || true
+if [[ -n $old_pkg ]]; then
 	cp -a "$old_pkg" "$snap/"
 else
-	echo "warning: no previous package file to keep; a rollback can only restore the database" >&2
+	echo "warning: no package file for the installed $installed; a rollback can only restore the database" >&2
 fi
 
 # Build while the servers keep running.
-say "Building"
+say "Building $new_ver (installed: $installed)"
 makepkg -sf
-new_pkg=$(makepkg --packagelist | head -1)
 [[ -f $new_pkg ]] || die "build produced no package"
 
 # The freshly built mcsctl reports autostart (older ones don't).
@@ -116,7 +128,7 @@ mapfile -t running < <(jq -r ".[] | $up | .name" <<<"$list")
 mapfile -t manual < <(jq -r ".[] | $up | select(.autostart | not) | .name" <<<"$list")
 
 echo
-echo "Ready to install $(basename "$new_pkg") for $unit."
+echo "Ready to update $unit: $installed → $new_ver"
 if ((${#running[@]})); then
 	echo "Running servers will be stopped with a ${delay}s countdown: ${running[*]}"
 fi
@@ -162,5 +174,7 @@ trap - ERR
 if compgen -G '/etc/mcsman/*.pacnew' >/dev/null; then
 	echo "Note: new default config in /etc/mcsman/*.pacnew; merge with sudo pacdiff" >&2
 fi
-say "Updated. Autostart servers are coming up on their own."
+say "Updated to $new_ver. Autostart servers are coming up on their own."
 rollback_hint 2>&1
+echo
+mcsctl doctor || true

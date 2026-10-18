@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+# First-time setup for an installed mcsman (run with sudo):
+#
+#   sudo mcsman-setup [--user USER] [--url URL] [-y]
+#   sudo mcsman-setup secret      # only generate MCSMAN_JWT_SECRET if unset
+#
+# Generates the session/encryption secret, makes the config readable by the
+# service user, sets base_url and trusted_proxies (detecting a cloudflared
+# container or service), starts mcsman@USER and creates the first admin.
+set -euo pipefail
+
+CONF=/etc/mcsman/mcsman.yaml
+ENVF=/etc/mcsman/mcsman.env
+
+die() { echo "mcsman-setup: $*" >&2; exit 1; }
+say() { printf '==> %s\n' "$*"; }
+
+# ensure_secret writes a random MCSMAN_JWT_SECRET into $ENVF unless one of
+# 32+ characters is already there. A shorter one is replaced: the daemon
+# refuses to start with it, so nothing was ever encrypted with it. The secret
+# only passes through shell builtins, never through argv.
+ensure_secret() {
+	local cur= line secret tmp found=0
+	[[ -f $ENVF ]] || install -Dm600 /dev/null "$ENVF"
+	while IFS= read -r line || [[ -n $line ]]; do
+		[[ $line == MCSMAN_JWT_SECRET=* ]] && cur=${line#MCSMAN_JWT_SECRET=}
+	done <"$ENVF"
+	cur=${cur#[\"\']} cur=${cur%[\"\']}
+	if ((${#cur} >= 32)); then
+		say "Secret already set in $ENVF"
+		return
+	fi
+	secret=$(head -c 48 /dev/urandom | base64 -w0)
+	tmp=$(mktemp "$ENVF.XXXXXX")
+	{
+		while IFS= read -r line || [[ -n $line ]]; do
+			if [[ $line == MCSMAN_JWT_SECRET=* ]]; then
+				((found)) || printf 'MCSMAN_JWT_SECRET=%s\n' "$secret"
+				found=1
+			else
+				printf '%s\n' "$line"
+			fi
+		done <"$ENVF"
+		((found)) || printf 'MCSMAN_JWT_SECRET=%s\n' "$secret"
+	} >"$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$ENVF"
+	say "Generated MCSMAN_JWT_SECRET in $ENVF (never change it: stored secrets are encrypted with it)"
+}
+
+# http_get KEY prints the value of http.KEY from the config.
+http_get() {
+	awk -v k="$1" '
+		/^[^[:space:]#]/ { inhttp = ($0 ~ /^http:/) }
+		inhttp && $0 ~ "^  " k ":" {
+			sub("^  " k ":[[:space:]]*", ""); sub("[[:space:]]+#.*$", ""); print; exit
+		}' "$CONF"
+}
+
+# http_set KEY VALUE replaces (or adds) http.KEY, keeping the file's owner/mode.
+http_set() {
+	local tmp
+	tmp=$(mktemp)
+	awk -v k="$1" -v v="$2" '
+		/^[^[:space:]#]/ {
+			if (inhttp && !done) { print "  " k ": " v; done = 1 }
+			inhttp = ($0 ~ /^http:/)
+		}
+		inhttp && $0 ~ "^  " k ":" { if (!done) print "  " k ": " v; done = 1; next }
+		{ print }
+		END { if (inhttp && !done) print "  " k ": " v }' "$CONF" >"$tmp"
+	grep -q "^  $1: " "$tmp" || { rm -f "$tmp"; die "no http: section in $CONF"; }
+	cat "$tmp" >"$CONF"
+	rm -f "$tmp"
+}
+
+ask() { # ask PROMPT DEFAULT → answer on stdout
+	local a
+	if ((yes)); then
+		printf '%s\n' "$2"
+		return
+	fi
+	read -rp "$1 [$2]: " a </dev/tty
+	printf '%s\n' "${a:-$2}"
+}
+
+# detect_tunnel sets origin_host (what the tunnel should point at) and
+# proxies (trusted_proxies) from a cloudflared container or service.
+detect_tunnel() {
+	origin_host=localhost proxies='[127.0.0.1]' tunnel=
+	if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
+		local name img net cfg subnet gw
+		while read -r name img; do
+			[[ $img == *cloudflared* ]] || continue
+			tunnel="container $name"
+			net=$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$name")
+			[[ $net == host ]] && return
+			net=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{"\n"}}{{end}}' "$name" | head -1)
+			cfg=$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{.Gateway}}{{"\n"}}{{end}}' "$net" | grep -m1 '\.' || true)
+			read -r subnet gw <<<"$cfg"
+			if [[ -n $gw ]]; then
+				tunnel="container $name on Docker network $net"
+				origin_host=$gw proxies="[127.0.0.1, $subnet]"
+			fi
+			return
+		done < <(docker ps --format '{{.Names}} {{.Image}}')
+	fi
+	if systemctl is-active --quiet cloudflared 2>/dev/null || command -v cloudflared >/dev/null; then
+		tunnel="cloudflared on this host"
+	fi
+}
+
+svc_user=${SUDO_USER:-} url= yes=0 mode=full
+while [[ $# -gt 0 ]]; do
+	case $1 in
+	secret) mode=secret ;;
+	--user) svc_user=${2:?}; shift ;;
+	--url) url=${2:?}; shift ;;
+	-y) yes=1 ;;
+	-h | --help) sed -n '2,10s/^# \{0,1\}//p' "$0"; exit 0 ;;
+	*) die "unknown argument $1 (see --help)" ;;
+	esac
+	shift
+done
+
+[[ $EUID -eq 0 ]] || die "run with sudo"
+if [[ $mode == secret ]]; then
+	ensure_secret
+	exit 0
+fi
+[[ -f $CONF ]] || die "$CONF not found; is the mcsman package installed?"
+
+# 1. Service user
+svc_user=$(ask "Run mcsman (and the Minecraft servers) as user" "${svc_user:-$(logname 2>/dev/null || echo)}")
+id "$svc_user" >/dev/null 2>&1 || die "no such user: $svc_user"
+[[ $svc_user != root ]] || die "don't run mcsman as root"
+svc_group=$(id -gn "$svc_user")
+
+# 2. Secret and config ownership
+ensure_secret
+chown "$svc_user:" "$CONF"
+chmod 600 "$CONF"
+say "$CONF is owned by $svc_user, mode 0600"
+
+# 3. Public URL and proxy settings
+listen=$(http_get listen)
+port=${listen##*:}
+port=${port:-8420}
+cur_url=$(http_get base_url)
+[[ $cur_url == *example.com* ]] && cur_url=
+while :; do
+	url=${url:-$(ask "Public URL of the web UI (e.g. https://mc.example.com; blank for LAN only)" "${cur_url:-}")}
+	[[ -z $url || $url =~ ^https?://[^/]+/?$ ]] && break
+	echo "Enter a URL like https://mc.example.com (no path)." >&2
+	((yes)) && die "invalid --url $url"
+	url=
+done
+url=${url%/}
+
+detect_tunnel
+if [[ -n $tunnel ]]; then
+	say "Found cloudflared: $tunnel"
+fi
+if [[ $origin_host == localhost ]]; then
+	cur_proxies=$(http_get trusted_proxies)
+	[[ -n $cur_proxies && $cur_proxies != '[]' ]] && proxies=$cur_proxies
+fi
+proxies=$(ask "Trusted proxies (tunnel/reverse proxy IPs or subnets)" "$proxies")
+http_set base_url "${url:-\"\"}"
+http_set trusted_proxies "$proxies"
+if [[ $origin_host != localhost && $listen == 127.0.0.1:* ]]; then
+	http_set listen "0.0.0.0:$port"
+	say "listen changed to 0.0.0.0:$port so the cloudflared container can reach mcsman"
+fi
+say "Config: base_url=${url:-<none>} trusted_proxies=$proxies"
+
+# 4. Start
+unit="mcsman@$svc_user"
+for other in $(systemctl list-units 'mcsman@*.service' --state=active --no-legend --plain | awk '{print $1}'); do
+	[[ $other == "$unit.service" ]] || die "$other is already running; stop it first (sudo systemctl disable --now $other)"
+done
+if systemctl is-active --quiet "$unit"; then
+	systemctl restart "$unit"
+else
+	systemctl enable --now "$unit"
+fi
+say "Waiting for $unit"
+for _ in $(seq 30); do
+	mcsctl version >/dev/null 2>&1 && mcsctl user list >/dev/null 2>&1 && break
+	sleep 1
+done
+mcsctl user list >/dev/null 2>&1 || { journalctl -u "$unit" -n 30 --no-pager; die "$unit did not start"; }
+
+# 5. First admin
+if ! mcsctl --json user list | grep -q '"username"'; then
+	say "Create the first admin account"
+	mcsctl init </dev/tty
+fi
+
+# 6. Socket access for the person running setup
+if [[ -n ${SUDO_USER:-} && $SUDO_USER != "$svc_user" ]] && ! id -nG "$SUDO_USER" | tr ' ' '\n' | grep -qx "$svc_group"; then
+	if [[ $(ask "Add $SUDO_USER to group $svc_group so mcsctl works without sudo? (y/n)" y) == [yY]* ]]; then
+		usermod -aG "$svc_group" "$SUDO_USER"
+		say "Added; log out and back in for it to take effect"
+	fi
+fi
+
+# 7. Next steps
+lan=$(hostname -I 2>/dev/null | awk '{print $1}')
+echo
+say "mcsman is running: http://${lan:-<host>}:$port"
+if [[ -n $url ]]; then
+	cat <<EOF
+
+Cloudflare Tunnel (Zero Trust → Networks → Tunnels → Public Hostname):
+    Hostname: ${url#*://}
+    Service:  HTTP  ${origin_host}:${port}
+    Leave "HTTP Host Header" empty (the live console checks it).
+EOF
+fi
+if systemctl is-active --quiet playit 2>/dev/null; then
+	cat <<EOF
+
+playit.gg agent detected: point each tunnel at 127.0.0.1:<game port>
+(25565 for the first server) and paste its address into
+Server → Settings → Public address (or: server create --address ADDR).
+EOF
+fi
+cat <<EOF
+
+Keep RCON ports (game port + 10) firewalled and never tunnel them.
+Check everything with:  sudo mcsctl doctor
+EOF

@@ -23,6 +23,8 @@ Usage:
 
 Commands:
   init [--username NAME]                 create the first admin account
+  doctor [--config PATH] [--env PATH]    check the installation (sudo for config/secret)
+  version                                print mcsctl and daemon versions
   server list
   server status <name>
   server create <name> --version V --accept-eula [--port N] [--rcon-port N]
@@ -90,6 +92,10 @@ func dispatch(c *client, args []string) error {
 	switch args[0] {
 	case "init":
 		return cmdInit(c, args[1:])
+	case "doctor":
+		return cmdDoctor(c, args[1:])
+	case "version", "--version":
+		return cmdVersion(c)
 	case "server":
 		if len(args) < 2 {
 			return errors.New("missing server subcommand")

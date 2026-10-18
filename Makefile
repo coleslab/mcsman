@@ -2,6 +2,8 @@ GO      ?= go
 BIN     := bin
 SVC_USER  ?= $(shell id -un)
 SVC_GROUP ?= $(shell id -gn)
+VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -X mcsman/internal/buildinfo.Version=$(VERSION)
 
 .PHONY: all build web test vet dev systemd clean
 
@@ -11,8 +13,8 @@ web:
 	@if [ -f web/package.json ]; then cd web && npm ci && npm run build; fi
 
 build: web
-	CGO_ENABLED=0 $(GO) build -trimpath -o $(BIN)/mcsman ./cmd/mcsman
-	CGO_ENABLED=0 $(GO) build -trimpath -o $(BIN)/mcsctl ./cmd/mcsctl
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/mcsman ./cmd/mcsman
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/mcsctl ./cmd/mcsctl
 
 test:
 	$(GO) test -race ./...

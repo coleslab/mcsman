@@ -55,6 +55,12 @@ see "Decisions" below.
 - Packaging: `packaging/arch/PKGBUILD` (`MCSMAN_SRC=$(realpath ../..) makepkg` for
   uncommitted trees) installs `mcsman@.service` (run as `mcsman@<user>`); `KillMode=mixed`
   is required so systemd doesn't SIGTERM Java before the graceful RCON stop.
+- Version: `internal/buildinfo.Version`, stamped by `make build VERSION=...`; the PKGBUILD
+  derives `0.1.0.r<commits>.g<sha>` from git. `GET /api/system` (socket only) reports it
+  plus effective config for `mcsctl version`/`doctor`.
+- `packaging/mcsman-setup` (installed to /usr/bin) does first-time setup; the package's
+  post_install runs `mcsman-setup secret` to generate the JWT secret if unset.
+  `packaging/arch/update.sh` updates an installed package with snapshot + `--rollback`.
 
 ## Workflow
 Phase-by-phase; after each phase demo + wait for user confirmation, then one commit.
