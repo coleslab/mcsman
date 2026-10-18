@@ -57,6 +57,67 @@ sudo install -m755 bin/mcsman bin/mcsctl /usr/local/bin/
 make systemd                        # renders bin/mcsman.service for the current user
 ```
 
+## Updating mcsman
+
+This updates mcsman itself; upgrading a server's Paper/Java version is
+separate (Version tab or `mcsctl upgrade run`).
+
+**1. Warn players.** Restarting the daemon gracefully stops every running
+server, but without an in-game countdown. Stop them yourself first if people
+are online, and take a fresh backup if you like:
+
+```sh
+mcsctl server stop survival --delay 60
+mcsctl backup create survival
+```
+
+**2. Save mcsman's state.** Database migrations run automatically on startup
+and only go forward, so an older mcsman can't use an upgraded `mcsman.db`.
+Keep a copy so you can roll back, plus the previous package (rebuilding
+overwrites it):
+
+```sh
+sudo systemctl stop mcsman@YOURUSER
+mkdir -p ~/mcsman-pre-update
+sudo cp -a /var/lib/mcsman/mcsman.db* /etc/mcsman ~/mcsman-pre-update/   # db* = WAL files too
+cp packaging/arch/mcsman-*.pkg.tar.zst ~/mcsman-pre-update/
+```
+
+**3. Build and install.**
+
+```sh
+git pull
+cd packaging/arch && makepkg -sif   # -f: rebuild even if a package file exists
+```
+
+pacman keeps your edited `/etc/mcsman/mcsman.yaml` and `mcsman.env`; new
+defaults land next to them as `.pacnew` files (`sudo pacdiff` to merge). For a
+manual install, rerun the `make build` and `sudo install` steps above instead.
+
+**4. Start and check.**
+
+```sh
+sudo systemctl start mcsman@YOURUSER
+journalctl -u mcsman@YOURUSER -f    # migrations, then "autostarting server"
+```
+
+Only servers with autostart enabled come back on their own; start the others
+from the web UI or with `mcsctl server start`.
+
+**Rolling back.** Stop the service, reinstall the saved package and put the
+saved database back:
+
+```sh
+sudo systemctl stop mcsman@YOURUSER
+sudo pacman -U ~/mcsman-pre-update/mcsman-*.pkg.tar.zst
+sudo rm -f /var/lib/mcsman/mcsman.db-wal /var/lib/mcsman/mcsman.db-shm
+sudo cp -a ~/mcsman-pre-update/mcsman.db* /var/lib/mcsman/
+sudo systemctl start mcsman@YOURUSER
+```
+
+Never change `MCSMAN_JWT_SECRET` as part of an update; stored RCON passwords
+and webhook URLs are encrypted with it.
+
 ## Networking
 
 | Port | Purpose | Expose? |
