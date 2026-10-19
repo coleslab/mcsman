@@ -19,7 +19,8 @@
 		crash: 'Crashed',
 		restart: 'Restarted after a crash',
 		backup: 'Backup',
-		upgrade: 'Upgraded'
+		upgrade: 'Upgraded',
+		config_edit: 'Config changed'
 	};
 
 	async function copy(text: string) {

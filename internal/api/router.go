@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -64,6 +65,7 @@ type Server struct {
 	log       *slog.Logger
 	web       http.Handler
 	tickets   *ticketStore
+	filesMu   sync.Mutex // serialises config-file check-and-write
 
 	loginLimit   *rateLimiter
 	refreshLimit *rateLimiter
@@ -183,6 +185,11 @@ func (s *Server) router() http.Handler {
 				r.Post("/servers/{id}/upgrade/confirm", s.handleUpgradeConfirm)
 				r.Get("/servers/{id}/upgrade/status", s.handleUpgradeStatus)
 				r.Post("/servers/{id}/worlds/import", s.handleImportWorld)
+				r.Get("/servers/{id}/files", s.handleListFiles)
+				r.Get("/servers/{id}/files/content", s.handleReadFile)
+				r.Put("/servers/{id}/files/content", s.handleWriteFile)
+				r.Get("/servers/{id}/files/revisions", s.handleFileRevisions)
+				r.Get("/servers/{id}/files/revisions/{rev}", s.handleFileRevision)
 
 				r.Get("/webhooks", s.handleListWebhooks)
 				r.Post("/webhooks", s.handleCreateWebhook)

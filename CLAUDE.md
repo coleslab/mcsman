@@ -30,6 +30,12 @@ see "Decisions" below.
 - Whitelist queue rows carry `action` add|remove; queueing supersedes any pending row for the
   same player/server. MC names are validated before reaching RCON. Removing a member skips
   the un-whitelist if another member shares the MC name.
+- Config editor (`internal/serverfiles`, admin-only Config tab): allowlist only — root Paper
+  YAMLs, `server.properties`, `<world>/paper-world.yml`, `plugins/<dir>/**` text files (≤6 path
+  segments). No create/delete/upload, no symlinks, ≤1 MiB, UTF-8. Saves need the read's
+  `base_sha256` (409 on change) and must parse (YAML/JSON; `force` overrides, 422 + line).
+  In `server.properties` the keys mcsman forces on start are kept from disk and
+  `rcon.password` is masked on read; `config_revisions` keeps 10 masked prior versions.
 - Existing users accept server invites via `POST /api/invites/{token}/accept`; site-only
   invites → 409. Changing `mc_username` moves whitelist entries on the user's servers.
 

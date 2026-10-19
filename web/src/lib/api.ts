@@ -112,6 +112,21 @@ export interface Member {
 	created_at: number;
 }
 
+export interface ConfigFile {
+	path: string;
+	group: string; // "Server" or a plugin folder
+	size: number;
+	mod_time: number;
+}
+
+export interface ConfigRevision {
+	id: string;
+	path: string;
+	sha256: string;
+	username: string | null;
+	created_at: number;
+}
+
 export interface ServerEvent {
 	id: string;
 	type: string;
@@ -410,6 +425,26 @@ export const api = {
 		request<{ user_id: string; username: string; queued: boolean }>('POST', `/api/servers/${id}/members`, { user_id }),
 	removeMember: (id: string, user_id: string) => request('DELETE', `/api/servers/${id}/members/${user_id}`),
 	serverEvents: (id: string) => request<ServerEvent[]>('GET', `/api/servers/${id}/events`),
+
+	configFiles: (id: string) => request<ConfigFile[]>('GET', `/api/servers/${id}/files`),
+	readConfig: (id: string, path: string) =>
+		request<{ path: string; content: string; sha256: string }>(
+			'GET',
+			`/api/servers/${id}/files/content?${new URLSearchParams({ path })}`
+		),
+	writeConfig: (id: string, path: string, content: string, base_sha256: string, force = false) =>
+		request<{ sha256: string; restart_required: boolean }>(
+			'PUT',
+			`/api/servers/${id}/files/content?${new URLSearchParams({ path })}`,
+			{ content, base_sha256, force }
+		),
+	configRevisions: (id: string, path: string) =>
+		request<ConfigRevision[]>('GET', `/api/servers/${id}/files/revisions?${new URLSearchParams({ path })}`),
+	configRevision: (id: string, rev: string) =>
+		request<{ id: string; path: string; content: string; created_at: number }>(
+			'GET',
+			`/api/servers/${id}/files/revisions/${rev}`
+		),
 
 	plugins: (id: string) => request<Plugin[]>('GET', `/api/servers/${id}/plugins`),
 	pluginSummaries: (id: string) => request<PluginSummary[]>('GET', `/api/servers/${id}/plugins`),

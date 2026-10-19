@@ -23,6 +23,7 @@
 		{ href: `${base}/members`, label: 'Members' },
 		{ href: `${base}/backups`, label: 'Backups' },
 		{ href: `${base}/worlds`, label: 'World' },
+		{ href: `${base}/config`, label: 'Config' },
 		{ href: `${base}/version`, label: 'Version' },
 		{ href: `${base}/settings`, label: 'Settings' }
 	]);
