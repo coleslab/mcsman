@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { api } from '#lib/api.ts';
 	import { provideServer } from '#lib/serverContext.svelte.ts';
+	import { session } from '#lib/session.svelte.ts';
 	import StatusPill from '#lib/StatusPill.svelte';
 
 	let { children } = $props();
@@ -19,6 +20,7 @@
 		{ href: base, label: 'Overview' },
 		{ href: `${base}/console`, label: 'Console' },
 		{ href: `${base}/plugins`, label: 'Plugins' },
+		{ href: `${base}/members`, label: 'Members' },
 		{ href: `${base}/backups`, label: 'Backups' },
 		{ href: `${base}/worlds`, label: 'World' },
 		{ href: `${base}/version`, label: 'Version' },
@@ -54,10 +56,23 @@
 </script>
 
 <main class="container stack">
-	<a href="/servers" class="muted back">← Servers</a>
+	<a href="/servers" class="muted back">← {session.isAdmin ? 'Servers' : 'My servers'}</a>
 
 	{#if ctx.error && !ctx.server}
 		<div class="alert error">{ctx.error}</div>
+	{:else if ctx.server && ctx.status && !session.isAdmin}
+		<!-- Members get a read-only overview; every other tab is admin-only. -->
+		<div class="head">
+			<div class="title">
+				<h1>{ctx.server.name}</h1>
+				<StatusPill status={ctx.status} />
+			</div>
+		</div>
+		{#if page.url.pathname === base}
+			{@render children()}
+		{:else}
+			<div class="alert error">Only admins can open this page.</div>
+		{/if}
 	{:else if ctx.server && ctx.status}
 		{@const status = ctx.status}
 		<div class="head">

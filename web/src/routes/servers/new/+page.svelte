@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { api } from '#lib/api.ts';
+	import { session } from '#lib/session.svelte.ts';
+
+	if (!session.isAdmin) goto('/servers', { replaceState: true });
 
 	let versions = $state<string[]>([]);
 	let versionsError = $state('');
@@ -15,13 +18,14 @@
 
 	const nameValid = $derived(/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name));
 
-	api
-		.paperVersions()
-		.then((r) => {
-			versions = r.versions;
-			mcVersion = r.versions[0] ?? '';
-		})
-		.catch(() => (versionsError = 'Could not load Paper versions; check the daemon can reach PaperMC.'));
+	if (session.isAdmin)
+		api
+			.paperVersions()
+			.then((r) => {
+				versions = r.versions;
+				mcVersion = r.versions[0] ?? '';
+			})
+			.catch(() => (versionsError = 'Could not load Paper versions; check the daemon can reach PaperMC.'));
 
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();

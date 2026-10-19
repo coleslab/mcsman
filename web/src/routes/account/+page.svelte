@@ -10,6 +10,27 @@
 		goto('/status');
 	}
 
+	let mc = $state(session.user?.mc_username ?? '');
+	let mcError = $state('');
+	let mcOk = $state(false);
+	let mcBusy = $state(false);
+	const mcValid = $derived(mc.trim() === '' || /^[A-Za-z0-9_]{3,16}$/.test(mc.trim()));
+
+	async function saveMC(e: SubmitEvent) {
+		e.preventDefault();
+		mcError = '';
+		mcOk = false;
+		mcBusy = true;
+		try {
+			session.user = await api.setMyMC(mc.trim());
+			mcOk = true;
+		} catch (err) {
+			mcError = err instanceof ApiError ? err.message : 'Could not reach the server.';
+		} finally {
+			mcBusy = false;
+		}
+	}
+
 	let current = $state('');
 	let next = $state('');
 	let confirmPw = $state('');
@@ -52,6 +73,24 @@
 			<div class="out"><button onclick={logout}>Log out</button></div>
 		</section>
 	{/if}
+
+	<form class="card stack" onsubmit={saveMC}>
+		<h2>Minecraft username</h2>
+		{#if mcError}<div class="alert error" role="alert">{mcError}</div>{/if}
+		{#if mcOk}<div class="alert ok">Saved. Your whitelist entries have been updated.</div>{/if}
+		<label class="field">
+			Minecraft username
+			<input bind:value={mc} autocapitalize="none" spellcheck="false" maxlength="16" aria-invalid={!mcValid} />
+			<small>
+				{mcValid
+					? "Exactly as it appears in the game. You're whitelisted under this name on your servers."
+					: '3–16 letters, numbers or _'}
+			</small>
+		</label>
+		<button class="primary" type="submit" disabled={mcBusy || !mcValid || mc.trim() === (session.user?.mc_username ?? '')}>
+			{mcBusy ? 'Saving…' : 'Save'}
+		</button>
+	</form>
 
 	<form class="card stack" onsubmit={submit}>
 		<h2>Change password</h2>

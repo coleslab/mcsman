@@ -14,14 +14,28 @@ import (
 	"mcsman/internal/version"
 )
 
+// playerPlugin is what members see of an installed plugin.
+type playerPlugin struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
 func (s *Server) handleListPlugins(w http.ResponseWriter, r *http.Request) {
-	inst, ok := s.instance(w, r)
+	inst, ok := s.memberInstance(w, r)
 	if !ok {
 		return
 	}
 	list, err := s.plugins.List(r.Context(), inst.Server().ID)
 	if err != nil {
 		s.writeErr(w, r, err)
+		return
+	}
+	if !principalFrom(r.Context()).IsAdmin() {
+		out := make([]playerPlugin, 0, len(list))
+		for _, p := range list {
+			out = append(out, playerPlugin{Name: p.Name, Version: p.Version})
+		}
+		writeJSON(w, http.StatusOK, out)
 		return
 	}
 	writeJSON(w, http.StatusOK, list)

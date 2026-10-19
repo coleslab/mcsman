@@ -55,6 +55,14 @@
 		if (confirm(msg)) run(u.id, () => api.setRole(u.id, role));
 	}
 
+	function setMC(u: User) {
+		const mc = prompt(
+			`Minecraft username for ${u.username} (leave empty to clear). Their whitelist entries move with it.`,
+			u.mc_username ?? ''
+		);
+		if (mc !== null) run(u.id, () => api.setUserMC(u.id, mc.trim()));
+	}
+
 	function remove(u: User) {
 		if (confirm(`Remove ${u.username}? They will be signed out immediately.`)) run(u.id, () => api.deleteUser(u.id));
 	}
@@ -141,6 +149,7 @@
 							</span>
 						</div>
 						<div class="btns">
+							<button class="small" disabled={busy === u.id} onclick={() => setMC(u)}>Minecraft name</button>
 							{#if u.role === 'player'}
 								<button class="small" disabled={busy === u.id} onclick={() => setRole(u, 'admin')}>Make admin</button>
 							{:else}
@@ -220,6 +229,7 @@
 	}
 	.btns {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 6px;
 	}
 </style>

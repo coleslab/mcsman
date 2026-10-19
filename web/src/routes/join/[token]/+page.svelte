@@ -17,6 +17,25 @@
 	let done = $state<{ server: WhitelistedServer | null; account: string } | null>(null);
 
 	const mcValid = $derived(mcUsername === '' || /^[A-Za-z0-9_]{3,16}$/.test(mcUsername));
+	// Signed in already: a server invite is accepted into this account.
+	const me = $derived(session.loaded ? session.user : null);
+	const needsMC = $derived(!me?.mc_username);
+
+	async function accept(e: SubmitEvent) {
+		e.preventDefault();
+		error = '';
+		busy = true;
+		try {
+			const server = await api.acceptInvite(token, needsMC ? mcUsername.trim() : undefined);
+			await session.load();
+			done = { server, account: session.user?.mc_username ?? me?.username ?? '' };
+		} catch (err) {
+			if (err instanceof ApiError && err.status === 410) invalid = err.message;
+			else error = err instanceof ApiError ? err.message : 'Could not reach the server.';
+		} finally {
+			busy = false;
+		}
+	}
 
 	api
 		.inviteInfo(token)
@@ -78,13 +97,52 @@
 				<h1>Welcome! Your account is ready.</h1>
 				<p>Check the status page to see available servers.</p>
 			{/if}
-			<a class="btn primary" href="/status">Go to server status</a>
+			{#if done.server}
+				<a class="btn primary" href="/servers">Go to my servers</a>
+			{:else}
+				<a class="btn primary" href="/status">Go to server status</a>
+			{/if}
 		{:else if invalid}
 			<h1>Invite unavailable</h1>
 			<p class="muted">{invalid}</p>
 			<a class="btn" href="/status">Server status</a>
-		{:else if !info}
+		{:else if !info || !session.loaded}
 			<p class="muted">Checking invite…</p>
+		{:else if me && !info.whitelist_server_name}
+			<h1>You already have an account</h1>
+			<p class="muted">
+				This invite creates a new account. You're signed in as <strong>{me.username}</strong>, so there's
+				nothing to do — or log out to create a different account.
+			</p>
+			<a class="btn primary" href="/servers">Go to my servers</a>
+		{:else if me}
+			<div>
+				<h1>You're invited</h1>
+				<p class="muted sub">
+					Join <strong>{info.whitelist_server_name}</strong> as <strong>{me.username}</strong>.
+				</p>
+			</div>
+			<form class="stack" onsubmit={accept}>
+				{#if error}<div class="alert error" role="alert">{error}</div>{/if}
+				{#if needsMC}
+					<label class="field">
+						Minecraft username
+						<input
+							bind:value={mcUsername}
+							autocapitalize="none"
+							spellcheck="false"
+							maxlength="16"
+							required
+							aria-invalid={!mcValid}
+						/>
+						<small>{mcValid ? 'Exactly as it appears in the game. Used for the whitelist.' : '3–16 letters, numbers or _'}</small>
+					</label>
+				{:else}
+					<p class="muted small">You'll be whitelisted as <strong>{me.mc_username}</strong>.</p>
+				{/if}
+				<button class="primary" type="submit" disabled={busy || !mcValid}>{busy ? 'Joining…' : `Join ${info.whitelist_server_name}`}</button>
+			</form>
+			<p class="muted small center">Not {me.username}? Log out first, then open this link again.</p>
 		{:else}
 			<div>
 				<h1>You're invited</h1>
@@ -125,6 +183,11 @@
 				</label>
 				<button class="primary" type="submit" disabled={busy || !mcValid}>{busy ? 'Creating account…' : 'Create account'}</button>
 			</form>
+			{#if info.whitelist_server_name}
+				<p class="muted small center">
+					Already have an account? <a href="/login?next={encodeURIComponent(`/join/${token}`)}">Log in</a> to join with it.
+				</p>
+			{/if}
 		{/if}
 	</div>
 </main>
@@ -157,5 +220,8 @@
 	}
 	.small {
 		font-size: 0.85rem;
+	}
+	.center {
+		text-align: center;
 	}
 </style>

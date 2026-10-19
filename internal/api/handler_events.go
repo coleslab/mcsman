@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -23,8 +24,9 @@ var (
 	}
 )
 
-// handleEvents streams live events for all servers. Auth: ?ticket= from
-// /api/ws-ticket (or the Unix socket).
+// handleEvents streams live events: every server's for admins, member
+// servers' for players. Auth: ?ticket= from /api/ws-ticket (or the Unix
+// socket).
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
 	if p == nil {
@@ -35,6 +37,20 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	admin := p.IsAdmin()
+	var member map[string]bool
+	loadMembers := func() {
+		ids, err := s.db.ServersForUser(context.WithoutCancel(r.Context()), p.User.ID)
+		if err != nil {
+			s.log.Error("load memberships", "err", err)
+		}
+		member = make(map[string]bool, len(ids))
+		for _, id := range ids {
+			member[id] = true
+		}
+	}
+	if !admin {
+		loadMembers()
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -64,7 +80,16 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
+			if e.Type == events.MembersChanged {
+				if !admin {
+					loadMembers()
+				}
+				continue
+			}
 			if !publicEventTypes[e.Type] && !(admin && adminEventTypes[e.Type]) {
+				continue
+			}
+			if !admin && !member[e.ServerID] {
 				continue
 			}
 			conn.SetWriteDeadline(time.Now().Add(wsWriteWait))

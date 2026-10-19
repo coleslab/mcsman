@@ -24,6 +24,14 @@ see "Decisions" below.
 - `trusted_proxies` config for client IP behind reverse proxy.
 - Server creation requires `accept_eula: true`.
 - Socket clients are admin (socket is 0660); `mcsctl init` seeds first admin only when no users exist.
+- Server membership (`server_members`) = whitelisted. Players see only member servers
+  (`memberInstance`; non-members get 404, not 403): overview, players, plugin names/versions,
+  event history without `detail`. Backups, world imports, plugin search are admin-only.
+- Whitelist queue rows carry `action` add|remove; queueing supersedes any pending row for the
+  same player/server. MC names are validated before reaching RCON. Removing a member skips
+  the un-whitelist if another member shares the MC name.
+- Existing users accept server invites via `POST /api/invites/{token}/accept`; site-only
+  invites → 409. Changing `mc_username` moves whitelist entries on the user's servers.
 
 ## Web UI (`web/`, SvelteKit 3 + Svelte 5 runes)
 - Kit 3: config lives in `sveltekit({...})` in `vite.config.ts` (no svelte.config.js);

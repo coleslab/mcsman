@@ -137,14 +137,15 @@ func (s *Server) router() http.Handler {
 			r.Get("/auth/me", s.handleMe)
 			r.Post("/ws-ticket", s.handleWSTicket)
 			r.Post("/users/me/password", s.handleChangePassword)
+			r.Patch("/users/me", s.handleUpdateMe)
+			r.With(s.redeemLimit.middleware).Post("/invites/{token}/accept", s.handleAcceptInvite)
 
+			// Players see only servers they are members of (memberInstance).
+			r.Get("/servers", s.handleListServers)
 			r.Get("/servers/{id}", s.handleGetServer)
 			r.Get("/servers/{id}/players", s.handlePlayers)
-			r.Get("/servers/{id}/backups", s.handleListBackups)
-			r.Get("/versions/paper", s.handlePaperVersions)
 			r.Get("/servers/{id}/plugins", s.handleListPlugins)
-			r.Get("/plugins/search", s.handleSearchPlugins)
-			r.Get("/servers/{id}/worlds/imports", s.handleWorldImports)
+			r.Get("/servers/{id}/events", s.handleServerEvents)
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireAdmin)
@@ -155,7 +156,15 @@ func (s *Server) router() http.Handler {
 				r.Patch("/users/{id}", s.handleUpdateUser)
 				r.Delete("/users/{id}", s.handleDeleteUser)
 
-				r.Get("/servers", s.handleListServers)
+				r.Get("/servers/{id}/members", s.handleListMembers)
+				r.Post("/servers/{id}/members", s.handleAddMember)
+				r.Delete("/servers/{id}/members/{user}", s.handleRemoveMember)
+
+				r.Get("/servers/{id}/backups", s.handleListBackups)
+				r.Get("/versions/paper", s.handlePaperVersions)
+				r.Get("/plugins/search", s.handleSearchPlugins)
+				r.Get("/servers/{id}/worlds/imports", s.handleWorldImports)
+
 				r.Post("/servers", s.handleCreateServer)
 				r.Patch("/servers/{id}", s.handleUpdateServer)
 				r.Delete("/servers/{id}", s.handleDeleteServer)
@@ -163,7 +172,6 @@ func (s *Server) router() http.Handler {
 				r.Post("/servers/{id}/stop", s.handleStop)
 				r.Post("/servers/{id}/restart", s.handleRestart)
 				r.Post("/servers/{id}/command", s.handleCommand)
-				r.Get("/servers/{id}/events", s.handleServerEvents)
 				r.Post("/servers/{id}/backups", s.handleCreateBackup)
 				r.Post("/servers/{id}/backups/{backup_id}/restore", s.handleRestoreBackup)
 				r.Delete("/servers/{id}/backups/{backup_id}", s.handleDeleteBackup)

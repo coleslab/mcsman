@@ -75,10 +75,10 @@ func (d *DB) RevokeInvite(ctx context.Context, id string) error {
 	return execOne(d.ExecContext(ctx, `DELETE FROM invites WHERE id = ? AND used_at IS NULL`, id))
 }
 
-// RedeemInvite atomically creates u and marks the invite used. If the
-// invite was redeemed concurrently or has expired, nothing is written and
-// ErrInviteInvalid is returned.
-func (d *DB) RedeemInvite(ctx context.Context, inviteID string, u *User) error {
+// RedeemInvite atomically creates u, marks the invite used and, for a
+// server invite, makes u a member. If the invite was redeemed concurrently
+// or has expired, nothing is written and ErrInviteInvalid is returned.
+func (d *DB) RedeemInvite(ctx context.Context, inv *Invite, u *User) error {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -92,43 +92,71 @@ func (d *DB) RedeemInvite(ctx context.Context, inviteID string, u *User) error {
 	}
 	res, err := tx.ExecContext(ctx,
 		`UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?`,
-		u.CreatedAt, u.ID, inviteID, u.CreatedAt)
+		u.CreatedAt, u.ID, inv.ID, u.CreatedAt)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return ErrInviteInvalid
 	}
+	if inv.WhitelistServerID != nil {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO server_members (server_id, user_id, added_by, created_at) VALUES (?,?,?,?)`,
+			*inv.WhitelistServerID, u.ID, nullStr(inv.CreatedBy), u.CreatedAt); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
+
+// Whitelist queue actions.
+const (
+	WhitelistAdd    = "add"
+	WhitelistRemove = "remove"
+)
 
 type WhitelistEntry struct {
 	ID         string `json:"id"`
 	ServerID   string `json:"server_id"`
 	MCUsername string `json:"mc_username"`
+	Action     string `json:"action"`
 	QueuedAt   int64  `json:"queued_at"`
 	AppliedAt  *int64 `json:"applied_at"`
 }
 
-// QueueWhitelist records a pending whitelist addition.
-func (d *DB) QueueWhitelist(ctx context.Context, serverID, mcUsername string, applied bool) (*WhitelistEntry, error) {
-	e := &WhitelistEntry{ID: newID(), ServerID: serverID, MCUsername: mcUsername, QueuedAt: now()}
+// QueueWhitelist records a whitelist change (WhitelistAdd or
+// WhitelistRemove). Any still-pending change for the same player on the
+// same server is superseded, so only the latest one is applied.
+func (d *DB) QueueWhitelist(ctx context.Context, serverID, mcUsername, action string, applied bool) (*WhitelistEntry, error) {
+	e := &WhitelistEntry{ID: newID(), ServerID: serverID, MCUsername: mcUsername, Action: action, QueuedAt: now()}
 	var appliedAt any
 	if applied {
 		e.AppliedAt = &e.QueuedAt
 		appliedAt = e.QueuedAt
 	}
-	_, err := d.ExecContext(ctx,
-		`INSERT INTO whitelist_queue (id, server_id, mc_username, queued_at, applied_at) VALUES (?,?,?,?,?)`,
-		e.ID, e.ServerID, e.MCUsername, e.QueuedAt, appliedAt)
-	return e, err
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE whitelist_queue SET applied_at = ? WHERE server_id = ? AND mc_username = ? COLLATE NOCASE AND applied_at IS NULL`,
+		e.QueuedAt, serverID, mcUsername); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO whitelist_queue (id, server_id, mc_username, action, queued_at, applied_at) VALUES (?,?,?,?,?,?)`,
+		e.ID, e.ServerID, e.MCUsername, e.Action, e.QueuedAt, appliedAt); err != nil {
+		return nil, err
+	}
+	return e, tx.Commit()
 }
 
 // PendingWhitelist lists unapplied entries for a server, oldest first.
 func (d *DB) PendingWhitelist(ctx context.Context, serverID string) ([]*WhitelistEntry, error) {
 	rows, err := d.QueryContext(ctx,
-		`SELECT id, server_id, mc_username, queued_at FROM whitelist_queue
-		 WHERE server_id = ? AND applied_at IS NULL ORDER BY queued_at`, serverID)
+		`SELECT id, server_id, mc_username, action, queued_at FROM whitelist_queue
+		 WHERE server_id = ? AND applied_at IS NULL ORDER BY queued_at, rowid`, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +164,7 @@ func (d *DB) PendingWhitelist(ctx context.Context, serverID string) ([]*Whitelis
 	var out []*WhitelistEntry
 	for rows.Next() {
 		var e WhitelistEntry
-		if err := rows.Scan(&e.ID, &e.ServerID, &e.MCUsername, &e.QueuedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.ServerID, &e.MCUsername, &e.Action, &e.QueuedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, &e)

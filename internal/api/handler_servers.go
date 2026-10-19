@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -99,6 +100,15 @@ func viewOf(inst *server.Instance) serverView {
 	}
 }
 
+func playerViewOf(inst *server.Instance) playerServerView {
+	v := viewOf(inst)
+	return playerServerView{
+		ID: v.ID, Name: v.Name, Status: v.Status, MCVersion: v.MCVersion,
+		ConnectionAddress: v.ConnectionAddress, PlayerCount: v.PlayerCount,
+		Players: v.Players, Metrics: v.Metrics,
+	}
+}
+
 // instance resolves the {id} URL param (ID or name).
 func (s *Server) instance(w http.ResponseWriter, r *http.Request) (*server.Instance, bool) {
 	inst, err := s.servers.Lookup(chi.URLParam(r, "id"))
@@ -109,7 +119,52 @@ func (s *Server) instance(w http.ResponseWriter, r *http.Request) (*server.Insta
 	return inst, true
 }
 
+// memberInstance is instance for routes players may use: admins reach any
+// server, players only those they are members of. Anything else is a 404,
+// so players can't probe for server names.
+func (s *Server) memberInstance(w http.ResponseWriter, r *http.Request) (*server.Instance, bool) {
+	inst, ok := s.instance(w, r)
+	if !ok {
+		return nil, false
+	}
+	p := principalFrom(r.Context())
+	if p.IsAdmin() {
+		return inst, true
+	}
+	member, err := s.db.IsMember(r.Context(), inst.Server().ID, p.User.ID)
+	if err != nil {
+		s.writeErr(w, r, err)
+		return nil, false
+	}
+	if !member {
+		writeError(w, http.StatusNotFound, "not found")
+		return nil, false
+	}
+	return inst, true
+}
+
+// handleListServers lists every server for admins, and a player's own
+// servers (player view) for players.
 func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
+	p := principalFrom(r.Context())
+	if !p.IsAdmin() {
+		ids, err := s.db.ServersForUser(r.Context(), p.User.ID)
+		if err != nil {
+			s.writeErr(w, r, err)
+			return
+		}
+		out := make([]playerServerView, 0, len(ids))
+		for _, srv := range s.servers.List() {
+			if !slices.Contains(ids, srv.ID) {
+				continue
+			}
+			if inst, err := s.servers.Get(srv.ID); err == nil {
+				out = append(out, playerViewOf(inst))
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
 	list := s.servers.List()
 	out := make([]serverView, 0, len(list))
 	for _, srv := range list {
@@ -123,22 +178,18 @@ func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
-	inst, ok := s.instance(w, r)
+	inst, ok := s.memberInstance(w, r)
 	if !ok {
 		return
 	}
-	v := viewOf(inst)
-	if principalFrom(r.Context()).IsAdmin() {
-		v.Schedule = s.scheduleOf(v.Server)
-		v.LastBackup = s.lastBackupOf(r, v.ID)
-		writeJSON(w, http.StatusOK, v)
+	if !principalFrom(r.Context()).IsAdmin() {
+		writeJSON(w, http.StatusOK, playerViewOf(inst))
 		return
 	}
-	writeJSON(w, http.StatusOK, playerServerView{
-		ID: v.ID, Name: v.Name, Status: v.Status, MCVersion: v.MCVersion,
-		ConnectionAddress: v.ConnectionAddress, PlayerCount: v.PlayerCount,
-		Players: v.Players, Metrics: v.Metrics,
-	})
+	v := viewOf(inst)
+	v.Schedule = s.scheduleOf(v.Server)
+	v.LastBackup = s.lastBackupOf(r, v.ID)
+	writeJSON(w, http.StatusOK, v)
 }
 
 func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
@@ -313,7 +364,7 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
-	inst, ok := s.instance(w, r)
+	inst, ok := s.memberInstance(w, r)
 	if !ok {
 		return
 	}
@@ -321,7 +372,7 @@ func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleServerEvents(w http.ResponseWriter, r *http.Request) {
-	inst, ok := s.instance(w, r)
+	inst, ok := s.memberInstance(w, r)
 	if !ok {
 		return
 	}
@@ -332,6 +383,12 @@ func (s *Server) handleServerEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	if evs == nil {
 		evs = []*db.ServerEvent{}
+	}
+	if !principalFrom(r.Context()).IsAdmin() {
+		// Details can carry errors and file paths; members get the history only.
+		for _, e := range evs {
+			e.Detail = nil
+		}
 	}
 	writeJSON(w, http.StatusOK, evs)
 }

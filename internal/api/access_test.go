@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"mcsman/internal/db"
 	"mcsman/internal/testutil"
 )
 
@@ -227,8 +228,15 @@ func TestPluginEndpointsAccess(t *testing.T) {
 	_, red := e.call("POST", "/api/invites/"+inv["token"].(string)+"/redeem", "", map[string]string{"username": "p", "password": "password123"})
 	player := red["access_token"].(string)
 
-	if resp, _ := e.call("GET", "/api/servers/"+id+"/plugins", player, nil); resp.StatusCode != 200 {
-		t.Errorf("player list plugins: %d", resp.StatusCode)
+	if resp, _ := e.call("GET", "/api/servers/"+id+"/plugins", player, nil); resp.StatusCode != 404 {
+		t.Errorf("non-member list plugins: %d", resp.StatusCode)
+	}
+	e.db.CreatePlugin(t.Context(), &db.Plugin{ServerID: id, Name: "Essentials", Version: "2.21", Source: "modrinth", Filename: "Essentials.jar", SHA256: "abc"})
+	os.MkdirAll(filepath.Join(srv["directory"].(string), "plugins"), 0o750)
+	os.WriteFile(filepath.Join(srv["directory"].(string), "plugins", "Essentials.jar"), []byte("x"), 0o640)
+	e.makeMember(t, admin, id, "p", "Pat")
+	if list := e.list(t, "/api/servers/"+id+"/plugins", player); len(list) != 1 || list[0]["name"] != "Essentials" || list[0]["filename"] != nil || list[0]["sha256"] != nil {
+		t.Errorf("member plugin list: %v", list)
 	}
 	if resp, _ := e.call("POST", "/api/servers/"+id+"/plugins", player, map[string]string{"source": "modrinth", "source_id": "x"}); resp.StatusCode != 403 {
 		t.Errorf("player install: %d", resp.StatusCode)

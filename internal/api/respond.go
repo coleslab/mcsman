@@ -46,7 +46,7 @@ func (s *Server) writeErr(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, db.ErrInviteInvalid):
 		writeError(w, http.StatusGone, err.Error())
-	case errors.Is(err, auth.ErrUsernameTaken):
+	case errors.Is(err, auth.ErrUsernameTaken), errors.Is(err, auth.ErrSiteInvite):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, server.ErrConflict):
 		writeError(w, http.StatusConflict, err.Error())

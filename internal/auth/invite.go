@@ -119,7 +119,7 @@ func (iv *Invites) Redeem(ctx context.Context, token string, req RedeemRequest) 
 		Role:         db.RolePlayer,
 		CreatedBy:    inv.CreatedBy,
 	}
-	if err := iv.DB.RedeemInvite(ctx, inv.ID, u); err != nil {
+	if err := iv.DB.RedeemInvite(ctx, inv, u); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: users.username") {
 			return nil, nil, nil, ErrUsernameTaken
 		}
@@ -130,4 +130,36 @@ func (iv *Invites) Redeem(ctx context.Context, token string, req RedeemRequest) 
 		return nil, nil, nil, err
 	}
 	return u, inv, tok, nil
+}
+
+// ErrSiteInvite is returned when an existing user tries to accept an
+// invite that only creates an account.
+var ErrSiteInvite = errors.New("this invite only creates a new account, and you already have one")
+
+// Accept applies a server invite to an existing account, making u a member
+// of the invite's server. If u has no Minecraft username, mcUsername is
+// required and saved. u is updated in place.
+func (iv *Invites) Accept(ctx context.Context, token string, u *db.User, mcUsername string) (*db.Invite, error) {
+	inv, err := iv.Lookup(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if inv.WhitelistServerID == nil {
+		return nil, ErrSiteInvite
+	}
+	var setMC *string
+	if u.MCUsername == nil {
+		mc := strings.TrimSpace(mcUsername)
+		if !ValidMCUsername(mc) {
+			return nil, fmt.Errorf("%w: a Minecraft username (3-16 letters, numbers or _) is required for this invite", ErrInvalidInput)
+		}
+		setMC = &mc
+	}
+	if err := iv.DB.AcceptInvite(ctx, inv, u.ID, setMC); err != nil {
+		return nil, err
+	}
+	if setMC != nil {
+		u.MCUsername = setMC
+	}
+	return inv, nil
 }

@@ -102,6 +102,29 @@ export interface WhitelistedServer {
 	queued: boolean;
 }
 
+export interface Member {
+	server_id: string;
+	user_id: string;
+	username: string;
+	mc_username: string | null;
+	role: Role;
+	added_by: string | null;
+	created_at: number;
+}
+
+export interface ServerEvent {
+	id: string;
+	type: string;
+	detail: string | null; // admin only
+	created_at: number;
+}
+
+/** What members see of a plugin; admins get the full Plugin. */
+export interface PluginSummary {
+	name: string;
+	version: string;
+}
+
 export interface Plugin {
 	id: string;
 	server_id: string;
@@ -365,14 +388,31 @@ export const api = {
 		tokens.set(r.access_token, r.refresh_token);
 		return r.whitelisted_server;
 	},
+	acceptInvite: async (token: string, mc_username?: string) =>
+		(
+			await request<{ whitelisted_server: WhitelistedServer | null }>(
+				'POST',
+				`/api/invites/${encodeURIComponent(token)}/accept`,
+				mc_username ? { mc_username } : {}
+			)
+		).whitelisted_server,
 
 	users: () => request<User[]>('GET', '/api/users'),
 	setRole: (id: string, role: Role) => request<User>('PATCH', `/api/users/${id}`, { role }),
+	setUserMC: (id: string, mc_username: string) => request<User>('PATCH', `/api/users/${id}`, { mc_username }),
 	deleteUser: (id: string) => request('DELETE', `/api/users/${id}`),
 	changePassword: (current: string, next: string) =>
 		request('POST', '/api/users/me/password', { current, new: next }),
+	setMyMC: (mc_username: string) => request<User>('PATCH', '/api/users/me', { mc_username }),
+
+	members: (id: string) => request<Member[]>('GET', `/api/servers/${id}/members`),
+	addMember: (id: string, user_id: string) =>
+		request<{ user_id: string; username: string; queued: boolean }>('POST', `/api/servers/${id}/members`, { user_id }),
+	removeMember: (id: string, user_id: string) => request('DELETE', `/api/servers/${id}/members/${user_id}`),
+	serverEvents: (id: string) => request<ServerEvent[]>('GET', `/api/servers/${id}/events`),
 
 	plugins: (id: string) => request<Plugin[]>('GET', `/api/servers/${id}/plugins`),
+	pluginSummaries: (id: string) => request<PluginSummary[]>('GET', `/api/servers/${id}/plugins`),
 	searchPlugins: (q: string, mc_version: string) =>
 		request<{ results: PluginSearchResult[]; errors: Record<string, string> }>(
 			'GET',

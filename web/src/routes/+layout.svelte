@@ -42,7 +42,10 @@
 					{ href: '/settings', label: 'Settings' },
 					{ href: '/status', label: 'Status' }
 				]
-			: [{ href: '/status', label: 'Status' }]
+			: [
+					{ href: '/servers', label: 'My servers' },
+					{ href: '/status', label: 'Status' }
+				]
 	);
 
 	async function logout() {
@@ -55,7 +58,7 @@
 {#if !isBare && session.loaded}
 	<header>
 		<div class="container bar">
-			<a href={session.isAdmin ? '/servers' : '/status'} class="brand">
+			<a href={session.user ? '/servers' : '/status'} class="brand">
 				<img src="/favicon.svg" alt="" width="24" height="24" />
 				<span>mcsman</span>
 			</a>

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { api, type Server } from '#lib/api.ts';
 	import { session } from '#lib/session.svelte.ts';
 	import { live } from '#lib/ws.svelte.ts';
@@ -18,30 +17,35 @@
 	}
 
 	$effect(() => {
-		if (session.isAdmin) load();
-		else goto('/status', { replaceState: true });
+		if (session.user) load();
 	});
 </script>
 
-<svelte:head><title>Servers · mcsman</title></svelte:head>
+<svelte:head><title>{session.isAdmin ? 'Servers' : 'My servers'} · mcsman</title></svelte:head>
 
 <main class="container stack">
-	{#if session.isAdmin}
+	{#if session.user}
 		<div class="row">
-			<h1>Servers</h1>
+			<h1>{session.isAdmin ? 'Servers' : 'My servers'}</h1>
 			<span class="spacer"></span>
-			<a class="btn primary" href="/servers/new">+ New server</a>
+			{#if session.isAdmin}<a class="btn primary" href="/servers/new">+ New server</a>{/if}
 		</div>
 
 		{#if error}<div class="alert error">{error}</div>{/if}
 
 		{#if servers === null && !error}
 			<p class="muted">Loading…</p>
-		{:else if servers?.length === 0}
+		{:else if servers?.length === 0 && session.isAdmin}
 			<div class="card empty">
 				<h2>No servers yet</h2>
 				<p>Create your first Paper server to get started.</p>
 				<a class="btn primary" href="/servers/new">Create a server</a>
+			</div>
+		{:else if servers?.length === 0}
+			<div class="card empty">
+				<h2>You haven't joined a server yet</h2>
+				<p>Ask an admin to add you, or open an invite link they send you.</p>
+				<a class="btn" href="/status">See server status</a>
 			</div>
 		{:else if servers}
 			<ul class="grid">
@@ -57,7 +61,7 @@
 							</div>
 							<div class="meta muted">
 								<span>Paper {s.mc_version}</span>
-								<span>:{s.port}</span>
+								{#if s.port}<span>:{s.port}</span>{/if}
 								{#if status === 'running' && m}
 									<span>{m.player_count} online</span>
 									<span>{m.tps.toFixed(1)} TPS</span>

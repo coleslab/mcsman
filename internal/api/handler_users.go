@@ -30,21 +30,33 @@ func (s *Server) userParam(r *http.Request) (*db.User, error) {
 	return s.db.UserByUsername(r.Context(), key)
 }
 
-// handleUpdateUser changes a user's role. The last admin cannot be demoted.
+// handleUpdateUser changes a user's role and/or Minecraft username. The
+// last admin cannot be demoted.
 func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Role string `json:"role"`
+		Role       string  `json:"role"`
+		MCUsername *string `json:"mc_username"` // "" clears it
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	if req.Role != db.RoleAdmin && req.Role != db.RolePlayer {
+	if req.Role != "" && req.Role != db.RoleAdmin && req.Role != db.RolePlayer {
 		writeError(w, http.StatusBadRequest, `role must be "admin" or "player"`)
 		return
 	}
 	u, err := s.userParam(r)
 	if err != nil {
 		s.writeErr(w, r, err)
+		return
+	}
+	if req.MCUsername != nil {
+		if err := s.setMCUsername(r.Context(), u, *req.MCUsername); err != nil {
+			s.writeErr(w, r, err)
+			return
+		}
+	}
+	if req.Role == "" || req.Role == u.Role {
+		writeJSON(w, http.StatusOK, u)
 		return
 	}
 	if u.Role == db.RoleAdmin && req.Role == db.RolePlayer {
@@ -79,6 +91,10 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "cannot delete the last admin")
 			return
 		}
+	}
+	if err := s.whitelist.RemoveUser(r.Context(), u); err != nil {
+		s.writeErr(w, r, err)
+		return
 	}
 	if err := s.db.DeleteUser(r.Context(), u.ID); err != nil {
 		s.writeErr(w, r, err)

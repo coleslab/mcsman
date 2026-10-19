@@ -313,13 +313,18 @@ func TestPlayerRestrictions(t *testing.T) {
 	}
 
 	for _, c := range []struct{ method, path string }{
-		{"GET", "/api/servers"}, {"POST", "/api/servers/" + id + "/start"},
+		{"POST", "/api/servers/" + id + "/start"},
 		{"POST", "/api/servers/" + id + "/command"}, {"DELETE", "/api/servers/" + id},
 	} {
 		if resp, _ := e.call(c.method, c.path, player, map[string]string{}); resp.StatusCode != 403 {
 			t.Errorf("player %s %s: %d", c.method, c.path, resp.StatusCode)
 		}
 	}
+	// Not a member yet: the server is invisible.
+	if resp, _ := e.call("GET", "/api/servers/"+id, player, nil); resp.StatusCode != 404 {
+		t.Errorf("non-member get: %d", resp.StatusCode)
+	}
+	e.makeMember(t, admin, id, "steve", "Steve")
 	resp, out = e.call("GET", "/api/servers/"+id, player, nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("player get: %d", resp.StatusCode)
@@ -454,6 +459,7 @@ func TestBackupEndpointsAndEventsSocket(t *testing.T) {
 	})
 	id := out["id"].(string)
 	os.WriteFile(filepath.Join(out["directory"].(string), "server.jar"), []byte("x"), 0o640)
+	e.makeMember(t, admin, id, "steve", "Steve")
 
 	// Player events socket: should see server_status but never backup events.
 	_, tout := e.call("POST", "/api/ws-ticket", player, nil)
@@ -480,20 +486,14 @@ func TestBackupEndpointsAndEventsSocket(t *testing.T) {
 	}
 	bid := bout["id"].(string)
 
-	// Players can list backups but not download them.
-	req, _ := http.NewRequest("GET", e.tcp.URL+"/api/servers/"+id+"/backups", nil)
-	req.Header.Set("Authorization", "Bearer "+player)
-	lresp, _ := http.DefaultClient.Do(req)
-	var list []map[string]any
-	json.NewDecoder(lresp.Body).Decode(&list)
-	lresp.Body.Close()
-	if len(list) != 1 {
-		t.Errorf("list: %v", list)
+	// Players can neither list nor download backups.
+	if resp, _ := e.call("GET", "/api/servers/"+id+"/backups", player, nil); resp.StatusCode != 403 {
+		t.Errorf("player list backups: %d", resp.StatusCode)
 	}
 	if resp, _ := e.call("GET", "/api/servers/"+id+"/backups/"+bid+"/download", player, nil); resp.StatusCode != 403 {
 		t.Errorf("player download: %d", resp.StatusCode)
 	}
-	req, _ = http.NewRequest("GET", e.tcp.URL+"/api/servers/"+id+"/backups/"+bid+"/download", nil)
+	req, _ := http.NewRequest("GET", e.tcp.URL+"/api/servers/"+id+"/backups/"+bid+"/download", nil)
 	req.Header.Set("Authorization", "Bearer "+admin)
 	dresp, err := http.DefaultClient.Do(req)
 	if err != nil {

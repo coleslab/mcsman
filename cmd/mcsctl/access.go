@@ -113,6 +113,23 @@ func dispatchUser(c *client, sub string, args []string) error {
 		}
 		fmt.Printf("%s is now %s.\n", args[0], args[1])
 		return nil
+	case "mc":
+		if len(args) < 1 || len(args) > 2 {
+			return errors.New(`usage: mcsctl user mc <username> [<minecraft-name>]   (omit the name to clear it)`)
+		}
+		mc := ""
+		if len(args) == 2 {
+			mc = args[1]
+		}
+		if err := c.do(http.MethodPatch, "/api/users/"+url.PathEscape(args[0]), map[string]string{"mc_username": mc}, nil); err != nil {
+			return err
+		}
+		if mc == "" {
+			fmt.Printf("Cleared %s's Minecraft name.\n", args[0])
+		} else {
+			fmt.Printf("%s's Minecraft name is now %s.\n", args[0], mc)
+		}
+		return nil
 	case "remove":
 		if len(args) == 0 {
 			return errors.New("missing username")
@@ -127,4 +144,58 @@ func dispatchUser(c *client, sub string, args []string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown user subcommand %q", sub)
+}
+
+func dispatchMember(c *client, sub string, args []string) error {
+	if len(args) == 0 {
+		return errors.New("missing server name")
+	}
+	base := "/api/servers/" + url.PathEscape(args[0]) + "/members"
+	switch sub {
+	case "list":
+		var list []struct {
+			Username   string  `json:"username"`
+			MCUsername *string `json:"mc_username"`
+			Role       string  `json:"role"`
+			CreatedAt  int64   `json:"created_at"`
+		}
+		if err := c.do(http.MethodGet, base, nil, &list); err != nil {
+			return err
+		}
+		if jsonOut {
+			return printJSON(list)
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "USERNAME\tMINECRAFT\tROLE\tADDED")
+		for _, m := range list {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s ago\n", m.Username, deref(m.MCUsername), m.Role, ago(m.CreatedAt))
+		}
+		return tw.Flush()
+	case "add":
+		if len(args) < 2 {
+			return errors.New("usage: mcsctl member add <server> <username>")
+		}
+		var out struct {
+			Queued bool `json:"queued"`
+		}
+		if err := c.do(http.MethodPost, base, map[string]string{"user_id": args[1]}, &out); err != nil {
+			return err
+		}
+		if out.Queued {
+			fmt.Printf("Added %s to %s; they'll be whitelisted when it next starts.\n", args[1], args[0])
+		} else {
+			fmt.Printf("Added %s to %s and whitelisted them.\n", args[1], args[0])
+		}
+		return nil
+	case "remove":
+		if len(args) < 2 {
+			return errors.New("usage: mcsctl member remove <server> <username>")
+		}
+		if err := c.do(http.MethodDelete, base+"/"+url.PathEscape(args[1]), nil, nil); err != nil {
+			return err
+		}
+		fmt.Printf("Removed %s from %s.\n", args[1], args[0])
+		return nil
+	}
+	return fmt.Errorf("unknown member subcommand %q", sub)
 }

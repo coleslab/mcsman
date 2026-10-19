@@ -1,9 +1,26 @@
 <script lang="ts">
+	import { api, type PluginSummary, type ServerEvent } from '#lib/api.ts';
 	import { ago, until } from '#lib/format.ts';
 	import { useServer } from '#lib/serverContext.svelte.ts';
+	import { session } from '#lib/session.svelte.ts';
 
 	const ctx = useServer();
 	let copied = $state(false);
+	let plugins = $state<PluginSummary[] | null>(null);
+	let events = $state<ServerEvent[] | null>(null);
+
+	// Admins have the Plugins tab; members see the list here.
+	if (!session.isAdmin) api.pluginSummaries(ctx.id).then((p) => (plugins = p), () => (plugins = []));
+	api.serverEvents(ctx.id).then((e) => (events = e.slice(0, 10)), () => (events = []));
+
+	const eventLabels: Record<string, string> = {
+		start: 'Started',
+		stop: 'Stopped',
+		crash: 'Crashed',
+		restart: 'Restarted after a crash',
+		backup: 'Backup',
+		upgrade: 'Upgraded'
+	};
 
 	async function copy(text: string) {
 		try {
@@ -63,8 +80,10 @@
 				<code class="addr">{s.connection_address}</code>
 				<button class="small" onclick={() => copy(s.connection_address!)}>{copied ? 'Copied' : 'Copy'}</button>
 			</div>
-		{:else}
+		{:else if s.port}
 			<p class="muted">No public address set. Players on your network can use this machine's IP and port {s.port}.</p>
+		{:else}
+			<p class="muted">No public address set. Ask an admin how to connect.</p>
 		{/if}
 		{#if s.players.length}
 			<div class="players">
@@ -73,6 +92,47 @@
 		{/if}
 	</section>
 
+	{#if !session.isAdmin}
+		<section class="card">
+			<h2>Details</h2>
+			<dl>
+				<dt>Version</dt><dd>Paper {s.mc_version}</dd>
+				<dt>Online</dt><dd>{m ? `${m.player_count} player${m.player_count === 1 ? '' : 's'}` : '—'}</dd>
+			</dl>
+		</section>
+
+		<section class="card">
+			<h2>Plugins</h2>
+			{#if plugins === null}
+				<p class="muted">Loading…</p>
+			{:else if plugins.length === 0}
+				<p class="muted">No plugins installed.</p>
+			{:else}
+				<ul class="plain">
+					{#each plugins as p (p.name)}
+						<li><span>{p.name}</span><span class="muted">{p.version}</span></li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
+	{/if}
+
+	<section class="card">
+		<h2>Recent activity</h2>
+		{#if events === null}
+			<p class="muted">Loading…</p>
+		{:else if events.length === 0}
+			<p class="muted">Nothing yet.</p>
+		{:else}
+			<ul class="plain">
+				{#each events as e (e.id)}
+					<li><span>{eventLabels[e.type] ?? e.type}</span><span class="muted">{ago(e.created_at)}</span></li>
+				{/each}
+			</ul>
+		{/if}
+	</section>
+
+	{#if session.isAdmin}
 	<section class="card">
 		<h2>Details</h2>
 		<dl>
@@ -96,6 +156,7 @@
 			<dt>Folder</dt><dd class="mono path">{s.directory}</dd>
 		</dl>
 	</section>
+	{/if}
 {/if}
 
 <style>
@@ -181,5 +242,21 @@
 	.path {
 		overflow-wrap: anywhere;
 		font-size: 0.8rem;
+	}
+	.plain {
+		list-style: none;
+		margin: 12px 0 0;
+		padding: 0;
+		font-size: 0.9rem;
+	}
+	.plain li {
+		display: flex;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 6px 0;
+		border-top: 1px solid var(--border);
+	}
+	.plain li:first-child {
+		border-top: none;
 	}
 </style>

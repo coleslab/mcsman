@@ -58,7 +58,12 @@ Commands:
 
   user list
   user role <username> admin|player
+  user mc <username> [<minecraft-name>]  set (or clear) a user's Minecraft name
   user remove <username>
+
+  member list <server>
+  member add <server> <username>         make a member and whitelist them
+  member remove <server> <username>      remove and un-whitelist
 
   completion bash|zsh                    print a shell completion script
 
@@ -116,6 +121,11 @@ func dispatch(c *client, args []string) error {
 			return errors.New("missing user subcommand")
 		}
 		return dispatchUser(c, args[1], args[2:])
+	case "member":
+		if len(args) < 2 {
+			return errors.New("missing member subcommand")
+		}
+		return dispatchMember(c, args[1], args[2:])
 	case "plugin":
 		if len(args) < 2 {
 			return errors.New("missing plugin subcommand")

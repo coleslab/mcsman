@@ -12,7 +12,8 @@
 	function nextPath() {
 		const next = page.url.searchParams.get('next') ?? '/servers';
 		// Only allow same-site relative paths.
-		return next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/login') ? next : '/servers';
+		// Browsers treat "/\" like "//", so reject both.
+		return next.startsWith('/') && !/^\/[/\\]/.test(next) && !next.startsWith('/login') ? next : '/servers';
 	}
 
 	$effect(() => {

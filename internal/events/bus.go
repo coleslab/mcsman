@@ -25,6 +25,7 @@ const (
 	BackupComplete  = "backup_complete"
 	BackupFailed    = "backup_failed"
 	UpgradeComplete = "upgrade_complete"
+	MembersChanged  = "members_changed"
 )
 
 // Event is the spec's WebSocket envelope.

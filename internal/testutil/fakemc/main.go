@@ -3,7 +3,7 @@
 // binds the game port, serves RCON and reacts to console input.
 //
 // Console/RCON commands: stop, crash, say <msg>, list, tps, mspt,
-// save-all, save-off, save-on, whitelist add <name>.
+// save-all, save-off, save-on, whitelist add|remove <name>.
 // Marker files in the working directory alter behaviour: "fakemc.ignore-stop"
 // makes it ignore the stop command and "fakemc.ignore-term" makes it ignore
 // SIGTERM (to exercise the stop escalation path); "fakemc.plugin-error"
@@ -135,6 +135,8 @@ func handle(cmd string) string {
 		return "Automatic saving is now enabled"
 	case strings.HasPrefix(cmd, "whitelist add "):
 		return "Added " + strings.TrimPrefix(cmd, "whitelist add ") + " to the whitelist"
+	case strings.HasPrefix(cmd, "whitelist remove "):
+		return "Removed " + strings.TrimPrefix(cmd, "whitelist remove ") + " from the whitelist"
 	case strings.HasPrefix(cmd, "fake-join "):
 		name := strings.TrimPrefix(cmd, "fake-join ")
 		players = append(players, name)
